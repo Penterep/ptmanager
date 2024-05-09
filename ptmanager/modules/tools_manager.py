@@ -1,7 +1,7 @@
 import subprocess
 import re
 import os
-
+import sys; sys.path.extend([__file__.rsplit("/", 1)[0], os.path.join(__file__.rsplit("/", 1)[0], "modules")])
 import requests
 
 from ptlibs import ptjsonlib, ptprinthelper
