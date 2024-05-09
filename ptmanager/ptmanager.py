@@ -191,6 +191,7 @@ def parse_args():
 def main():
     global SCRIPTNAME
     SCRIPTNAME = "ptmanager"
+    requests.packages.urllib3.disable_warnings()
     args = handle_tools_args(parse_args())
     manager = PtManager(args)
     manager.run(args)
