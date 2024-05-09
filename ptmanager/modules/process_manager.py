@@ -334,5 +334,6 @@ def parse_args():
 
 if __name__ == "__main__":
     args = parse_args()
+    requests.packages.urllib3.disable_warnings()
     tool_subprocess = ProcessManager(args)
     tool_subprocess.run(args)
