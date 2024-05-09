@@ -22,6 +22,10 @@ import sys; sys.path.extend([__file__.rsplit("/", 1)[0], os.path.join(__file__.r
 import pathlib
 import threading
 
+if os.getuid() == 0:
+    print("This script should not be run as root. Exiting.")
+    sys.exit(1)
+
 from _version import __version__
 from modules.config import Config
 from modules.project_manager import ProjectManager
@@ -66,9 +70,12 @@ class PtManager:
         elif args.tools_list:
             self._get_tools_manager().print_available_tools()
         elif args.tools_install:
-            self._get_tools_manager().prepare_install_update_tools(args.tools_install, do_install=True)
+            self._get_tools_manager().prepare_install_update_delete_tools(args.tools_install, do_install=True)
         elif args.tools_update:
-            self._get_tools_manager().prepare_install_update_tools(args.tools_update, do_update=True)
+            self._get_tools_manager().prepare_install_update_delete_tools(args.tools_update, do_update=True)
+        elif args.tools_delete:
+            self._get_tools_manager().prepare_install_update_delete_tools(args.tools_delete, do_delete=True)
+
 
         # Start Daemon
         elif args.connect:
@@ -104,6 +111,7 @@ def get_help() -> list[dict[str,any]]:
             "ptmanager --init",
             "ptmanager --project-new --target <target> --auth <auth>",
             "ptmanager --project-start 1",
+            "ptmanager --install-tools ptaxfr ptwebdiscover",
         ]},
         {"Manager options": [
             ["-pn",  "--project-new",          "",                 "Register new project"],
@@ -115,9 +123,10 @@ def get_help() -> list[dict[str,any]]:
             ]
         },
         {"Tools options": [
-            ["-tl",  "--tools-list",             "",                "List available tools"],
-            ["-tu",  "--tools-update",           "<tools>",         "Update tool or update all tools"],
-            ["-ti",  "--tools-install",          "<tools>",         "Install tool or install all tools"],
+            ["-tl",  "--tools-list",             "",               "List available tools"],
+            ["-ti",  "--tools-install",          "<tool>",         "Install <tool>"],
+            ["-tu",  "--tools-update",           "<tool>",         "Update <tool>"],
+            ["-td",  "--tools-delete",           "<tool>",         "Delete <tool>"],
             ]
         },
         {"options": [
@@ -134,6 +143,12 @@ def get_help() -> list[dict[str,any]]:
         },
         ]
 
+def handle_tools_args(args):
+    attributes_to_check = ['tools_install', 'tools_update', 'tools_delete']
+    for attr in attributes_to_check:
+        if getattr(args, attr, None) == []:
+            setattr(args, attr, ["all"])
+    return args
 
 def parse_args():
     parser = argparse.ArgumentParser(add_help=False, usage=f"{SCRIPTNAME}.py <options>")
@@ -150,8 +165,9 @@ def parse_args():
     parser.add_argument("-pd",   "--project-delete",  type=str)
 
     parser.add_argument("-tl", "-lt",  "--tools-list",      action="store_true")
-    parser.add_argument("-ti", "-it",  "--tools-install",   type=str, nargs="+")
-    parser.add_argument("-tu", "-ut",  "--tools-update",    type=str, nargs="+")
+    parser.add_argument("-ti", "-it",  "--tools-install",   type=str, nargs="*")
+    parser.add_argument("-tu", "-ut",  "--tools-update",    type=str, nargs="*")
+    parser.add_argument("-td", "-dt",  "--tools-delete",    type=str, nargs="*")
 
     parser.add_argument("-T",    "--target",          type=str)
     parser.add_argument("-a",    "--auth",            type=str)
@@ -162,9 +178,11 @@ def parse_args():
     parser.add_argument("-t",    "--threads",         type=int, default=20)
     parser.add_argument("-v",    "--version",         action="version", version=f"{SCRIPTNAME} {__version__}")
 
+
     if len(sys.argv) == 1 or "-h" in sys.argv or "--help" in sys.argv:
         ptprinthelper.help_print(get_help(), SCRIPTNAME, __version__)
         sys.exit(0)
+
     args = parser.parse_args()
     ptprinthelper.print_banner(SCRIPTNAME, __version__, False)
     return args
@@ -173,7 +191,7 @@ def parse_args():
 def main():
     global SCRIPTNAME
     SCRIPTNAME = "ptmanager"
-    args = parse_args()
+    args = handle_tools_args(parse_args())
     manager = PtManager(args)
     manager.run(args)
 

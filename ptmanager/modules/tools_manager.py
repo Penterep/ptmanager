@@ -15,7 +15,7 @@ class ToolsManager:
     def print_available_tools(self) -> None:
         self._print_tools_table(self._get_script_list_from_api())
 
-    def _print_tools_table(self, tool_list_from_api, tools2update: list = None, tools2install: list = None) -> None:
+    def _print_tools_table(self, tool_list_from_api, tools2update: list = None, tools2install: list = None, tools2delete: list = None) -> None:
         print(f"{ptprinthelper.get_colored_text('Tool name', 'TITLE')}{' '*9}{ptprinthelper.get_colored_text('Installed', 'TITLE')}{' '*10}{ptprinthelper.get_colored_text('Latest', 'TITLE')}")
         print(f"{'-'*20}{'-'*19}{'-'*19}{'-'*6}")
 
@@ -23,14 +23,23 @@ class ToolsManager:
             is_installed, local_version = self.check_if_tool_is_installed(ptscript['name'])
             remote_version = ptscript["version"]
 
-            print(f"{ptscript['name']}{' '*(20-len(ptscript['name']))}{local_version}{' '*(19-len(local_version))}{remote_version}{' '*5}", end="" if tools2update or tools2install else "\n", flush=True)
+            print(f"{ptscript['name']}{' '*(20-len(ptscript['name']))}{local_version}{' '*(19-len(local_version))}{remote_version}{' '*5}", end="" if tools2update or tools2install or tools2delete else "\n", flush=True)
 
             if tools2install:
                 if ptscript["name"] in tools2install:
                     if not is_installed:
-                        print(self.install_update(tool_name=ptscript["name"], do_install=True))
+                        print(self._install_update_delete_tools(tool_name=ptscript["name"], do_install=True))
                     else:
                         print("Already installed")
+                else:
+                    print("")
+
+            if tools2delete:
+                if ptscript["name"] in tools2delete:
+                    if is_installed:
+                        print(self._install_update_delete_tools(tool_name=ptscript["name"], do_delete=True))
+                    else:
+                        print("Already uninstalled")
                 else:
                     print("")
 
@@ -38,7 +47,7 @@ class ToolsManager:
                 if ptscript["name"] in tools2update:
                     if is_installed:
                         if local_version.replace(".", "") < remote_version.replace(".", ""):
-                            print(self.install_update(tool_name=ptscript["name"], local_version=local_version, do_update=True))
+                            print(self._install_update_delete_tools(tool_name=ptscript["name"], local_version=local_version, do_update=True))
                         elif local_version.replace(".", "") == remote_version.replace(".", ""):
                             print("Already latest version")
                         else:
@@ -47,6 +56,10 @@ class ToolsManager:
                         print("Install first before updating")
                 else:
                     print("")
+
+
+        #print(f"{'-'*20}{'-'*19}{'-'*19}{'-'*6}")
+
 
     def _get_script_list_from_api(self) -> list:
         """Retrieve available tools from API"""
@@ -64,11 +77,6 @@ class ToolsManager:
         except Exception as e:
             self.ptjsonlib.end_error(f"Error retrieving tools from api - {e}", self.use_json)
 
-        """
-        for script in result:
-            if len(script.keys()) != 2 or not re.fullmatch("[a-z]+", script["name"]) or not re.fullmatch("[\d.]+", script["version"]):
-                self.ptjsonlib.end_error("Downloaded tool list is invalid", self.use_json)
-        """
         return sorted(script_list, key=lambda x: x['name'])
 
     def check_if_tool_is_installed(self, tool_name) -> tuple[bool, str]:
@@ -85,26 +93,43 @@ class ToolsManager:
         return is_installed, local_version
 
 
-    def install_update(self, tool_name:str, do_install=False, do_update=False, local_version=None) -> str:
-        assert do_update or do_install
+    def _install_update_delete_tools(self, tool_name:str, do_install=False, do_update=False, do_delete=False, local_version=None) -> str:
+        assert do_update or do_install or do_delete
+
         if do_install:
             process_args = ["pip", "install", tool_name]
+
         if do_update:
             process_args = ["pip", "install", tool_name, "--upgrade"]
-        process = subprocess.run(process_args, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True) # install
-        try:
-            process = subprocess.run([tool_name, "-v"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True) # check new version
-            new_version = process.stdout.split()[1]
-        except Exception as e:
-            return f"- -> Updated: Error - {e}"
-        if do_update:
-            return f"{local_version} -> {new_version} Updated: OK"
+
+        if do_delete:
+            if tool_name in ["ptlibs"]:
+                return "Cannot be deleted from ptmanager"
+            process_args = ["pip", "uninstall", tool_name, "-y"]
+
+
+        process = subprocess.run(process_args, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True) # install/update/delete
+        if do_delete:
+            try:
+                process = subprocess.run([tool_name, "-v"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True) # check new version
+            except FileNotFoundError as e:
+                return f"Uninstall: OK"
+            except:
+                return f"Uninstall: {e}"
         else:
-            return f"Installed: OK"
+            try:
+                process = subprocess.run([tool_name, "-v"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True) # check new version
+                new_version = process.stdout.split()[1]
+            except Exception as e:
+                return f"- -> Updated: Error - {e}"
+            if do_update:
+                return f"{local_version} -> {new_version} Updated: OK"
+            else:
+                return f"Installed: OK"
 
 
-    def prepare_install_update_tools(self, tools2prepare: list, do_update: bool=None, do_install: bool=None) -> None:
-        """Prepare provided tools for installation or update"""
+    def prepare_install_update_delete_tools(self, tools2prepare: list, do_update: bool=None, do_install: bool=None, do_delete: bool = None) -> None:
+        """Prepare provided tools for installation or update or deletion"""
         tools2prepare = set([tool.lower() for unparsed_tool in tools2prepare for tool in unparsed_tool.split(",") if tool])
         script_list = self._get_script_list_from_api()
 
@@ -119,6 +144,8 @@ class ToolsManager:
                 self._print_tools_table(script_list, tools2install=valid_tool_names)
             if do_update:
                 self._print_tools_table(script_list, tools2update=valid_tool_names)
+            if do_delete:
+                self._print_tools_table(script_list, tools2delete=valid_tool_names)
 
         if invalid_tool_names:
             if not valid_tool_names:
