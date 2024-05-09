@@ -7,7 +7,7 @@ with open("README.md", "r") as fh:
 setuptools.setup(
     name="ptmanager",
     version=__version__,
-    description="Penterep Manager",
+    description="Penterep Script Management Tool",
     author="Penterep",
     author_email="info@penterep.com",
     url="https://www.penterep.com/",
