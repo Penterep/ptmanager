@@ -52,17 +52,15 @@ class ToolsManager:
         """Retrieve available tools from API"""
         print("Fetching tools...", end="\r")
         try:
-            #available_tools = requests.get("https://raw.githubusercontent.com/penterep/ptmanager/ptmanager/main/available_tools.txt").text
+            available_tools = requests.get("https://raw.githubusercontent.com/Penterep/ptmanager/main/ptmanager/available_tools.txt").text.split("\n")
+            available_tools = sorted(list(set([tool.strip() for tool in available_tools if tool.strip() and not tool.startswith("#")])))
             script_list = []
-            with open(os.path.join(__file__.rsplit("/", 2)[0], "available_tools.txt"), "r") as file:
-                lines = sorted(list(set([tool.strip() for tool in file.readlines() if tool.strip() and not tool.startswith("#")])))
-                print(lines)
-                for tool in lines:
-                    response = requests.get(f'https://pypi.python.org/pypi/{tool}/json')
-                    if response.status_code != 200:
-                        continue
-                    response = response.json()
-                    script_list.append({"name": tool, "version": list(response['releases'].keys())[-1]})
+            for tool in available_tools:
+                response = requests.get(f'https://pypi.python.org/pypi/{tool}/json')
+                if response.status_code != 200:
+                    continue
+                response = response.json()
+                script_list.append({"name": tool, "version": list(response['releases'].keys())[-1]})
         except Exception as e:
             self.ptjsonlib.end_error(f"Error retrieving tools from api - {e}", self.use_json)
 
