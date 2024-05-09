@@ -10,7 +10,8 @@ ptmultiviews
 ptconvert
 ptlibs
 ptwebdiscover
+pthost
+ptnmap
 #ptinjector
 #ptiistild
 #ptvulnsearcher
-#ptnmap
