@@ -105,13 +105,13 @@ class PtManager:
 
 def get_help() -> list[dict[str,any]]:
     return [
-        {"description": ["Penterep Tools Manager"]},
+        {"description": ["Penterep Script Management Tool"]},
         {"usage": ["ptmanager <options>"]},
         {"usage_example": [
             "ptmanager --init",
             "ptmanager --project-new --target <target> --auth <auth>",
             "ptmanager --project-start 1",
-            "ptmanager --install-tools ptaxfr ptwebdiscover",
+            "ptmanager --tools-install ptaxfr ptwebdiscover",
         ]},
         {"Manager options": [
             ["-pn",  "--project-new",          "",                 "Register new project"],
