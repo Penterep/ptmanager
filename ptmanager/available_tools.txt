@@ -12,6 +12,7 @@ ptlibs
 ptwebdiscover
 pthost
 ptnmap
+ptcookiechecker
 #ptinjector
 #ptiistild
 #ptvulnsearcher
