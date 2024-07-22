@@ -13,6 +13,6 @@ ptwebdiscover
 pthost
 ptnmap
 ptcookiechecker
+ptiistild
 #ptinjector
-#ptiistild
 #ptvulnsearcher
