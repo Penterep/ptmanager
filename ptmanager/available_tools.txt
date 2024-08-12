@@ -14,5 +14,6 @@ pthost
 ptnmap
 ptcookiechecker
 ptiistild
+ptmultifinder
 #ptinjector
 #ptvulnsearcher
