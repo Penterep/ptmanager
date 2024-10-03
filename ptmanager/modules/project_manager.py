@@ -70,7 +70,7 @@ class ProjectManager:
             if not Process(project["pid"]).is_running():
                 self.config.set_project_pid(project, None)
             else:
-                self.ptjsonlib.end_error(f"Project is already running with PID {project['pid']}", self.use_json)
+                self.ptjsonlib.end_error(f"Project {self.config.get_project(project_id).get('project_name', '')} is already running (PID: {project['pid']})", self.use_json)
 
         try:
             project_port = 10000 + project_id
@@ -90,7 +90,7 @@ class ProjectManager:
 
         self.config.set_project_pid(project_id, process.pid)
         self.config.set_project_port(project_id, project_port)
-        ptprinthelper.ptprint_(ptprinthelper.out_ifnot(f"Started Project {project_id+1} with PID {process.pid}", "INFO"))
+        ptprinthelper.ptprint_(ptprinthelper.out_ifnot(f"Started project {self.config.get_project(project_id).get('project_name', '')}", "INFO"))
 
 
     def end_project(self, project_id: int) -> None:
@@ -100,9 +100,9 @@ class ProjectManager:
                 os.kill(process_pid, signal.SIGTERM)
                 self.config.set_project_pid(project_id, None)
                 self.config.set_project_port(project_id, None)
-                ptprinthelper.ptprint_(ptprinthelper.out_ifnot(f"Killed process with PID {process_pid}", "OK"))
+                ptprinthelper.ptprint_(ptprinthelper.out_ifnot(f"Ended project {self.config.get_project(project_id).get('project_name', '')}", "OK"))
             except ProcessLookupError:
-                ptprinthelper.ptprint_(ptprinthelper.out_ifnot(f"Proccess [{process_pid}] is not running ", "ERROR"))
+                ptprinthelper.ptprint_(ptprinthelper.out_ifnot(f"Project {self.config.get_project(project_id).get('project_name', '')} is not running ", "ERROR"))
                 self.config.set_project_pid(project_id, None)
                 self.config.set_project_port(project_id, None)
             except Exception as e:
