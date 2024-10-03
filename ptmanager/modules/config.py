@@ -9,6 +9,7 @@ class Config:
     TEMP = "temp"
     SATID_KEY = "satid"
     PID_KEY = "pid"
+    PORT_KEY = "port"
 
     def __init__(self, config_path: str) -> None:
         self._config_path = config_path
@@ -16,14 +17,14 @@ class Config:
         try:
             self.load()
         except (FileNotFoundError, json.JSONDecodeError):
-            ptprinthelper.ptprint_(ptprinthelper.out_ifnot(f"Config file not found, creating new ..\n", "ERROR"))
             self.make()
 
+    def __repr__(self) -> None:
+        print(self._config)
 
     def load(self) -> dict[list]:
         with open(self._config_path + self.NAME) as f:
             self._config = json.load(f)
-
 
     def make(self) -> dict[list]:
         self.assure_config_path()
@@ -32,17 +33,19 @@ class Config:
             f.write(json.dumps(data, indent=4, sort_keys=True))
         self._config = json.loads(json.dumps(data))
 
-
     def assure_config_path(self) -> None:
         os.makedirs(self._config_path, exist_ok=True)
-
 
     def delete(self) -> None:
         os.remove(self._config_path + self.NAME)
 
     def delete_projects(self) -> None:
-        shutil.rmtree(os.path.join(self._config_path, self.PROJECTS_KEY))
-
+        try:
+            shutil.rmtree(os.path.join(self._config_path, self.PROJECTS_KEY))
+        except FileNotFoundError as e:
+            pass
+        except Exception as e:
+            print(e)
 
     def save(self) -> None:
         with open(self._config_path + self.NAME, "w") as f:
@@ -56,11 +59,6 @@ class Config:
         temp_path = self._config_path + self.TEMP + "/"
         os.makedirs(temp_path, exist_ok=True)
         return temp_path
-
-
-    def print(self) -> None:
-        print("-"*40, json.dumps(self._config, indent=4), "-"*40, sep="\n")
-
 
     def get_projects(self) -> list:
         return self._config[self.PROJECTS_KEY]
@@ -83,12 +81,22 @@ class Config:
 
 
     def set_project_pid(self, project_id: int, pid: int) -> None:
+        """Sets <pid> for <project_id>"""
         self._config[self.PROJECTS_KEY][project_id][self.PID_KEY] = pid
 
 
+    def set_project_port(self, project_id: int, port: int) -> None:
+        """Sets <port> for <project_id>"""
+        self._config[self.PROJECTS_KEY][project_id][self.PORT_KEY] = port
+
+
     def remove_project(self, project_id: int) -> None:
-        shutil.rmtree(os.path.join(self._config_path, self.PROJECTS_KEY, self.get_project(project_id).get("AS-ID")))
+        try:
+            shutil.rmtree(os.path.join(self._config_path, self.PROJECTS_KEY, self.get_project(project_id).get("AS-ID")))
+        except FileNotFoundError:
+            pass
         self._config[self.PROJECTS_KEY].pop(project_id)
+        self.save()
 
 
     def get_project(self, project_id: int):

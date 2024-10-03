@@ -19,7 +19,6 @@
 import argparse
 import os
 import sys; sys.path.extend([__file__.rsplit("/", 1)[0], os.path.join(__file__.rsplit("/", 1)[0], "modules")])
-import pathlib
 import threading
 
 if os.getuid() == 0:
@@ -37,62 +36,59 @@ from ptlibs import ptprinthelper, ptjsonlib
 
 class PtManager:
     def __init__(self, args) -> None:
-        self.ptjsonlib     = ptjsonlib.PtJsonLib()
-        self.use_json      = False
-        self.proxies       = args.proxy
-        self.no_ssl_verify = not args.no_ssl_verify
-        home_path          = str(pathlib.Path.home())
-        self.config        = Config(f"{home_path}/.ptmanager/")
-
-        if int(bool(args.project_start))+int(bool(args.project_end))+int(bool(args.project_reset))+int(bool(args.project_delete)) > 1:
-            self.ptjsonlib.end_error("Cannot combine (start/end/reset/delete) project arguments together")
-
+        self.ptjsonlib: object    = ptjsonlib.PtJsonLib()
+        self.config: object       = Config(config_path=os.path.join(os.path.expanduser("~"), ".ptmanager/"))
+        self.proxies: dict        = args.proxy
+        self.no_ssl_verify: bool  = args.no_ssl_verify
+        self.use_json: bool       = False
 
     def run(self, args: argparse.Namespace) -> None:
         """Main method"""
-        # Handle Project Manager
-        if args.init:
-            self._get_project_manager().register_uid()
+
+        if args.init or not self.config.get_satid():
+            self._get_project_manager().register_uid() # Generate uid
+
         elif args.project_new:
             self._get_project_manager().register_project(args.target, args.auth)
+
         elif args.project_start:
             self._get_project_manager().start_project(self.validate_project_id(args.project_start))
+
         elif args.project_end:
             self._get_project_manager().end_project(self.validate_project_id(args.project_end))
+
         elif args.project_reset:
             self._get_project_manager().reset_project(self.validate_project_id(args.project_reset))
+
         elif args.project_delete:
             self._get_project_manager().delete_project(self.validate_project_id(args.project_delete))
+
         elif args.project_list:
             self._get_project_manager().list_projects()
 
         # Handle Tool Manager
         elif args.tools_list:
             self._get_tools_manager().print_available_tools()
+
         elif args.tools_install:
             self._get_tools_manager().prepare_install_update_delete_tools(args.tools_install, do_install=True)
+
         elif args.tools_update:
             self._get_tools_manager().prepare_install_update_delete_tools(args.tools_update, do_update=True)
+
         elif args.tools_delete:
             self._get_tools_manager().prepare_install_update_delete_tools(args.tools_delete, do_delete=True)
 
-
-        # Start Daemon
-        elif args.connect:
-            connect_thread = threading.Thread(target=self._connect, args=(args.target, args.auth, args.sid, args.threads, args._project_id))
-            connect_thread.start()
         else:
             self.ptjsonlib.end_error("Bad argument combination", self.use_json)
 
         self.config.save()
-
 
     def _get_project_manager(self) -> ProjectManager:
         return ProjectManager(ptjsonlib=self.ptjsonlib, use_json=self.use_json, proxies=self.proxies, no_ssl_verify=self.no_ssl_verify, config=self.config)
 
     def _get_tools_manager(self) -> ToolsManager:
         return ToolsManager(ptjsonlib=self.ptjsonlib, use_json=self.use_json)
-
 
     def validate_project_id(self, project_id) -> int:
         projects_list = [str(i) for i in range(1, len(self.config.get_projects())+1)]
@@ -114,12 +110,12 @@ def get_help() -> list[dict[str,any]]:
             "ptmanager --tools-install ptaxfr ptwebdiscover",
         ]},
         {"Manager options": [
-            ["-pn",  "--project-new",          "",                 "Register new project"],
-            ["-pl",  "--project-list",         "",                 "List available projects"],
-            ["-ps",  "--project-start",        "<project_id>",     "Start project"],
-            ["-pr",  "--project-reset",        "<project_id>",     "Restart project"],
-            ["-pd",  "--project-delete",       "<project_id>",     "Delete project"],
-            ["-pe",  "--project-end",          "<project_id>",     "End project"],
+            ["-pn",  "--project-new",          "",         "Register new project"],
+            ["-pl",  "--project-list",         "",         "List available projects"],
+            ["-ps",  "--project-start",        "<id>",     "Start project"],
+            ["-pr",  "--project-reset",        "<id>",     "Restart project"],
+            ["-pd",  "--project-delete",       "<id>",     "Delete project"],
+            ["-pe",  "--project-end",          "<id>",     "End project"],
             ]
         },
         {"Tools options": [
@@ -130,7 +126,7 @@ def get_help() -> list[dict[str,any]]:
             ]
         },
         {"options": [
-            ["-i",   "--initialize",             "",                 "Initialize ptmanager"],
+            #["-i",  "--initialize",            "",                  "Initialize ptmanager"],
             ["-T",   "--target",                 "<target>",         "Set target server"],
             ["-a",   "--auth",                   "<auth>",           "Set authorization code"],
             ["-S",   "--sid",                    "<sid>",            "Set session ID"],
@@ -153,16 +149,15 @@ def handle_tools_args(args):
 def parse_args():
     parser = argparse.ArgumentParser(add_help=False, usage=f"{SCRIPTNAME}.py <options>")
     parser.add_argument("-p",    "--proxy",           type=str)
-    parser.add_argument("-nv",   "--no-ssl-verify",   action="store_false")
-
+    parser.add_argument("-nv",   "--no-ssl-verify",   action="store_true")
     parser.add_argument("-i",    "--init",            action="store_true")
 
-    parser.add_argument("-pn",   "--project-new",     action="store_true")
-    parser.add_argument("-pl",   "--project-list",    action="store_true")
-    parser.add_argument("-ps",   "--project-start",   type=str)
-    parser.add_argument("-pe",   "--project-end",     type=str)
-    parser.add_argument("-pr",   "--project-reset",   type=str)
-    parser.add_argument("-pd",   "--project-delete",  type=str)
+    parser.add_argument("-np", "-pn",   "--project-new",     action="store_true")
+    parser.add_argument("-lp", "-pl",   "--project-list",    action="store_true")
+    parser.add_argument("-sp", "-ps",   "--project-start",   type=str)
+    parser.add_argument("-ep", "-pe",   "--project-end",     type=str)
+    parser.add_argument("-rp", "-pr",   "--project-reset",   type=str)
+    parser.add_argument("-dp", "-pd",   "--project-delete",  type=str)
 
     parser.add_argument("-tl", "-lt",  "--tools-list",      action="store_true")
     parser.add_argument("-ti", "-it",  "--tools-install",   type=str, nargs="*")
@@ -172,11 +167,12 @@ def parse_args():
     parser.add_argument("-T",    "--target",          type=str)
     parser.add_argument("-a",    "--auth",            type=str)
     parser.add_argument("-S",    "--sid",             type=str)
-    parser.add_argument("-prj",  "--_project_id",     type=str)
-    parser.add_argument("-c",    "--connect",         action="store_true")
-
     parser.add_argument("-t",    "--threads",         type=int, default=20)
     parser.add_argument("-v",    "--version",         action="version", version=f"{SCRIPTNAME} {__version__}")
+
+    parser.add_argument("--socket-address",          type=str, default=None)
+    parser.add_argument("--port",                    type=str, default=None)
+    parser.add_argument("--process-ident",           type=str, default=None)
 
 
     if len(sys.argv) == 1 or "-h" in sys.argv or "--help" in sys.argv:
@@ -184,7 +180,10 @@ def parse_args():
         sys.exit(0)
 
     args = parser.parse_args()
-    ptprinthelper.print_banner(SCRIPTNAME, __version__, False)
+    if int(bool(args.project_start))+int(bool(args.project_end))+int(bool(args.project_reset))+int(bool(args.project_delete)) > 1:
+        ptjsonlib.PtJsonLib().end_error("Cannot combine project --start/--end/--reset/--delete  arguments together", True)
+
+    ptprinthelper.print_banner(SCRIPTNAME, __version__, False, 1)
     return args
 
 

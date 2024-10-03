@@ -22,7 +22,6 @@ class ToolsManager:
         for ptscript in tool_list_from_api:
             is_installed, local_version = self.check_if_tool_is_installed(ptscript['name'])
             remote_version = ptscript["version"]
-
             print(f"{ptscript['name']}{' '*(20-len(ptscript['name']))}{local_version}{' '*(19-len(local_version))}{remote_version}{' '*5}", end="" if tools2update or tools2install or tools2delete else "\n", flush=True)
 
             if tools2install:
@@ -57,10 +56,6 @@ class ToolsManager:
                 else:
                     print("")
 
-
-        #print(f"{'-'*20}{'-'*19}{'-'*19}{'-'*6}")
-
-
     def _get_script_list_from_api(self) -> list:
         """Retrieve available tools from API"""
         print("Fetching tools...", end="\r")
@@ -78,6 +73,7 @@ class ToolsManager:
             self.ptjsonlib.end_error(f"Error retrieving tools from api - {e}", self.use_json)
 
         return sorted(script_list, key=lambda x: x['name'])
+
 
     def check_if_tool_is_installed(self, tool_name) -> tuple[bool, str]:
         try:

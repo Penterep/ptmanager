@@ -11,6 +11,7 @@ import json
 import requests
 
 from ptlibs import ptjsonlib, ptprinthelper
+from urllib.parse import urlparse
 
 from config import Config
 from process import Process
@@ -18,82 +19,77 @@ from process import Process
 
 class ProjectManager:
     def __init__(self, ptjsonlib: ptjsonlib.PtJsonLib, use_json: bool, proxies: dict, no_ssl_verify: bool, config: Config) -> None:
-        self.ptjsonlib     = ptjsonlib
-        self.use_json      = use_json
-        self.no_ssl_verify = no_ssl_verify
-        self.proxies       = {"http": proxies, "https": proxies}
-        self.config        = config
+        self.ptjsonlib: object   = ptjsonlib
+        self.use_json: bool      = use_json
+        self.no_ssl_verify: bool = no_ssl_verify
+        self.proxies: dict       = {"http": proxies, "https": proxies}
+        self.config: object      = config
 
-    def register_project(self, target: str, auth_token: str) -> None:
-        """Registers new project"""
-        if not target:
+        #TODO: Implementovat přepínač pro insecure SSL a upravit všechny requesty, aby s tímto přepínačem spolupracovaly
+
+    def register_project(self, target_url: str, auth_token: str) -> None:
+        if not target_url:
             self.ptjsonlib.end_error("Missing --target parameter", self.use_json)
         if not auth_token:
             self.ptjsonlib.end_error("Missing --auth parameter", self.use_json)
+        if not self.config.get_satid():
+            self.ptjsonlib.end_error("Please run 'ptmanager --init' first.", self.use_json)
+        if not target_url.endswith("/"):
+            target_url += "/"
 
-        target = self.is_url(target)
-        if not target:
-            self.ptjsonlib.end_error("Target is not a valid URL", self.use_json)
-
-        registration_url = target + "api/v1/sat/register"
         try:
-            response = requests.post(registration_url, proxies=self.proxies, verify=self.no_ssl_verify, data={"token": auth_token, "satid": self.config.get_satid()})
-        except requests.RequestException as e:
-            self.ptjsonlib.end_error("Server is not responding", self.use_json)
+            """Register project on server"""
+            for project in self.config.get_projects():
+                if project['auth'] == auth_token:
+                    self.ptjsonlib.end_error("Provided authorization token has already been used.", self.use_json)
 
-        if response.status_code == 200:
-            try:
-                response_json = response.json()
-            except json.JSONDecodeError:
-                self.ptjsonlib.end_error(f"Could not parse target response as json - {response.text}", self.use_json)
+            print("Registering new project ... ", flush=True)
 
-            if response_json.get("success"):
-                print(response_json["data"]['name'])
-                print(response_json['message'])
-                project_name = response_json['data']['name']
+            response = requests.post(url=self._get_registration_url(target_url), proxies=self.proxies, allow_redirects=False, verify=self.no_ssl_verify, data={"token": auth_token, "satid": self.config.get_satid()})
+            if response.status_code != 200:
+                raise Exception
+
+            response_data = response.json()
+            if response_data.get("success"):
+                print(response_data['message'], "\n")
+
+                project_name = self._get_unique_project_name(base_name=response_data['data']['name'])
+                self.config.add_project({"project_name": project_name, "target": target_url, "auth": auth_token, "pid": None, "port": None, "AS-ID": ''.join(random.choice(string.ascii_lowercase + string.digits) for _ in range(8))})
+                self.list_projects()
             else:
-                self.ptjsonlib.end_error(response_json, self.use_json)
-        else:
-            self.ptjsonlib.end_error(f"[{response.status_code}] {response.text}", self.use_json)
+                raise Exception
 
-        AS_ID = ''.join(random.choice(string.ascii_lowercase) for _ in range(8))
-        self.config.add_project({"project_name": project_name, "target": target, "auth": auth_token, "pid": None, "AS-ID": AS_ID})
+        except Exception as e:
+            self.ptjsonlib.end_error(f"Error registering new project ({e})", self.use_json)
 
-    def is_url(self, url: int):
-        try:
-            result = urllib.parse.urlparse(url)
-            if result.path:
-                while result.path.endswith("/"):
-                    result = result._replace(path=result.path[:-1])
-            result = result._replace(path=result.path + "/")
-            return result.geturl()
-        except ValueError:
-            return False
 
     def start_project(self, project_id: int) -> None:
-        """Starts specified project."""
-        print("Starting ....")
-        project = self.config.get_project(project_id)
-        if project["pid"]:
+        project: dict = self.config.get_project(project_id)
+
+        if project.get("pid"):
             if not Process(project["pid"]).is_running():
-                self.config.set_project_pid(project_id, None)
+                self.config.set_project_pid(project, None)
             else:
                 self.ptjsonlib.end_error(f"Project is already running with PID {project['pid']}", self.use_json)
 
-        response = {"sessionid": "sessionid"}
         try:
-            subprocess_args = [sys.executable, os.path.realpath(os.path.join(__file__.rsplit("/", 1)[0], "process_manager.py")), "--target", project["target"], "--auth", project["auth"], "--sid", response["sessionid"], "--project_id", project["AS-ID"]]
+            project_port = 10000 + project_id
+            response = {"sessionid": "sessionid"} # FIXME: Implement sessionId
 
+            subprocess_args = [sys.executable, os.path.realpath(os.path.join(__file__.rsplit("/", 1)[0], "daemon.py")), "--target", project["target"], "--auth", project["auth"], "--sid", response["sessionid"], "--project-id", project["AS-ID"], "--port", str(project_port)]
             if self.proxies.get("http"):
                 subprocess_args += ["--proxy", self.proxies.get("http")]
             if not self.no_ssl_verify:
                 subprocess_args += ["--no_ssl_verify"]
 
-            process = subprocess.Popen(subprocess_args)
+            # Start daemon.py via subprocess
+            process = subprocess.Popen(subprocess_args, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
         except Exception as e:
             self.ptjsonlib.end_error(e, self.use_json)
+
         self.config.set_project_pid(project_id, process.pid)
+        self.config.set_project_port(project_id, project_port)
         ptprinthelper.ptprint_(ptprinthelper.out_ifnot(f"Started Project {project_id+1} with PID {process.pid}", "INFO"))
 
 
@@ -103,14 +99,17 @@ class ProjectManager:
             try:
                 os.kill(process_pid, signal.SIGTERM)
                 self.config.set_project_pid(project_id, None)
+                self.config.set_project_port(project_id, None)
                 ptprinthelper.ptprint_(ptprinthelper.out_ifnot(f"Killed process with PID {process_pid}", "OK"))
             except ProcessLookupError:
                 ptprinthelper.ptprint_(ptprinthelper.out_ifnot(f"Proccess [{process_pid}] is not running ", "ERROR"))
                 self.config.set_project_pid(project_id, None)
+                self.config.set_project_port(project_id, None)
             except Exception as e:
                 self.ptjsonlib.end_error(e, self.use_json)
         else:
             self.ptjsonlib.end_error(f"Project is not running", self.use_json)
+
 
     def reset_project(self, project_id: int) -> None:
         if self.config.get_pid(project_id):
@@ -128,22 +127,25 @@ class ProjectManager:
             self.ptjsonlib.end_error(f"Project is running, end project first", self.use_json)
 
         project = self.config.get_project(project_id)
-        request_path = project["target"] + "api/v1/sat/delete"
+        url = project["target"] + "api/v1/sat/delete"
 
         try:
-            response = requests.post(request_path, proxies=self.proxies, verify=self.no_ssl_verify, data={"satid": self.config.get_satid()}) #project["auth"]
+            print(f"Deleting project {self.config.get_project(project_id).get('project_name')} ...", flush=True)
+
+            # Send request to delete from AS
+            response = requests.post(url=url, proxies=self.proxies, verify=self.no_ssl_verify, data={"satid": self.config.get_satid()})
             self.config.remove_project(project_id)
-            ptprinthelper.ptprint_(ptprinthelper.out_ifnot(f"Project deleted succesfully", "OK"))
-        except requests.RequestException as e:
+            print(f"Project {project.get('project_name')} deleted succesfully")
+        except (requests.RequestException) as e:
             ptprinthelper.ptprint(f"Server is not responding", "ERROR")
             if self._yes_no_prompt("Cannot delete project from AS. Delete TS from server manualy.\nProject will be deleted locally only. Are you sure?", bullet_type=None):
                 self.config.remove_project(project_id)
-                ptprinthelper.ptprint_(ptprinthelper.out_ifnot(f"Local project deleted succesfully", "OK"))
+                ptprinthelper.ptprint_(ptprinthelper.out_ifnot(f"local project deleted succesfully", "OK"))
 
 
     def list_projects(self) -> None:
-        print(f"{ptprinthelper.get_colored_text('ID', 'TITLE')}{' '*4}{ptprinthelper.get_colored_text('Project Name', 'TITLE')}{' '*20}{ptprinthelper.get_colored_text('PID', 'TITLE')}{' '*7}{ptprinthelper.get_colored_text('Status', 'TITLE')}{' '*9}")
-        print(f"{'-'*6}{'-'*32}{'-'*10}{'-'*15}")
+        print(f"{ptprinthelper.get_colored_text('ID', 'TITLE')}{' '*4}{ptprinthelper.get_colored_text('Project Name', 'TITLE')}{' '*20}{ptprinthelper.get_colored_text('PID', 'TITLE')}{' '*7}{ptprinthelper.get_colored_text('Status', 'TITLE')}{' '*9}{ptprinthelper.get_colored_text('Port', 'TITLE')}")
+        print(f"{'-'*6}{'-'*32}{'-'*10}{'-'*15}{'-'*5}")
         if not self.config.get_projects():
             print(" ")
             self.ptjsonlib.end_error("No projects found, register a project first", self.use_json)
@@ -153,6 +155,7 @@ class ProjectManager:
                 if not Process(project["pid"]).is_running():
                     self.config.set_project_pid(index - 1, None)
                     project["pid"] = None
+
             pid = project["pid"]
             if pid:
                 status = "running"
@@ -160,16 +163,18 @@ class ProjectManager:
                 status = "-"
                 pid = "-"
 
+            port = project["port"] if project["port"] else "-"
             print(f"{index}{' '*(6-len(str(index)))}", end="")
             print(f"{project['project_name']}{' '*(32-len(project['project_name']))}", end="")
             print(f"{str(pid)}{' '*(10-len(str(pid)))}", end="")
             print(f"{status}{' '*(15-len(status))}", end="")
+            print(f"{port}{' '*(15-len(str(port)))}", end="")
             print("")
 
     def register_uid(self) -> None:
         UID = str(uuid.uuid1())
         if self.config.get_satid():
-            if self._yes_no_prompt("UID already exists, are you sure you want to create new? All your projects will be deleted!"):
+            if self._yes_no_prompt("This will delete all your existing projects. This action cannot be undone."):
                 self.config.delete_projects()
                 self.config.delete()
                 self.config.make()
@@ -178,18 +183,40 @@ class ProjectManager:
                 exit()
         else:
             self.config.set_satid(UID)
-            print("[*] New UID generated")
-            self.config.print()
 
-
-    def _yes_no_prompt(self, msg, bullet_type="OK") -> bool:
-        ptprinthelper.ptprint_(ptprinthelper.out_ifnot(f"{msg}", bullet_type), end=" ")
-        reply = input(f"y/N: ").upper().strip()
-        if reply == "Y":
+    def _yes_no_prompt(self, message) -> bool:
+        print(message)
+        action = input(f'Are you sure? (y/n): ').upper().strip()
+        if action == "Y":
             return True
-        elif reply == "N" or reply == "":
+        elif action == "N" or action == "":
             return False
         else:
-            return self._yes_no_prompt(msg)
+            return self._yes_no_prompt(message)
 
-#TODO: Implementovat přepínač pro insecure SSL a upravit všechny requesty, aby s tímto přepínačem spolupracovaly
+
+    def _get_unique_project_name(self, base_name):
+        """Returns unique project name."""
+        project_name = base_name
+        counter = 1
+
+        # Kontrola, zda projekt s daným názvem už existuje
+        while any(project.get("project_name") == project_name for project in self.config.get_projects()):
+            project_name = f"{base_name} ({counter})"
+            counter += 1
+
+        return project_name
+
+    def _get_registration_url(self, url: str):
+        """Replace url path with /api/v1/sat/register"""
+        parsed_url = urlparse(url)
+        # Check if the URL is valid
+        if all([parsed_url.scheme, parsed_url.netloc]) and parsed_url.scheme in ["http", "https"]:
+            # Ensure the path ends with a slash before adding the new path
+            if not parsed_url.path.endswith('/'):
+                parsed_url = parsed_url._replace(path=parsed_url.path + '/')
+            # Replace the path and clear params, query, and fragment
+            new_url = parsed_url._replace(path='/api/v1/sat/register', params='', query='', fragment='').geturl()
+            return new_url
+        else:
+            return self.ptjsonlib.end_error("--target is not a valid URL.", self.use_json)
