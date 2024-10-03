@@ -45,9 +45,9 @@ class ProjectManager:
 
             print("Registering new project ... ", flush=True)
 
-            response = requests.post(url=self._get_registration_url(target_url), proxies=self.proxies, allow_redirects=False, verify=self.no_ssl_verify, data={"token": auth_token, "satid": self.config.get_satid()})
+            response = requests.post(url=self._get_registration_url(target_url), proxies=self.proxies, allow_redirects=False, verify=self.no_ssl_verify, data=json.dumps({"token": auth_token, "satid": self.config.get_satid()}), headers={"Content-Type": "application/json"})
             if response.status_code != 200:
-                raise Exception
+                raise Exception("Error registering new project")
 
             response_data = response.json()
             if response_data.get("success"):
@@ -60,7 +60,7 @@ class ProjectManager:
                 raise Exception
 
         except Exception as e:
-            self.ptjsonlib.end_error(f"Error registering new project ({e})", self.use_json)
+            self.ptjsonlib.end_error(f"Error registering new project", self.use_json)
 
 
     def start_project(self, project_id: int) -> None:
@@ -133,7 +133,7 @@ class ProjectManager:
             print(f"Deleting project {self.config.get_project(project_id).get('project_name')} ...", flush=True)
 
             # Send request to delete from AS
-            response = requests.post(url=url, proxies=self.proxies, verify=self.no_ssl_verify, data={"satid": self.config.get_satid()})
+            response = requests.post(url=url, proxies=self.proxies, verify=self.no_ssl_verify, data=json.dumps({"satid": self.config.get_satid()}), headers={"Content-Type": "application/json"}, allow_redirects=False)
             self.config.remove_project(project_id)
             print(f"Project {project.get('project_name')} deleted succesfully")
         except (requests.RequestException) as e:
