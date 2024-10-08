@@ -25,28 +25,32 @@ source ~/.zshrc
 
 ## Usage examples
 ```
-   ptmanager --init
+Usage:
+   ptmanager <options>
+
+Usage example:
    ptmanager --project-new --target <target> --auth <auth>
    ptmanager --project-start 1
+   ptmanager --tools-install ptaxfr ptwebdiscover
 ```
 
 ## Options
 ```
 Manager options:
-   -pn  --project-new                   Register new project
-   -pl  --project-list                  List available projects
-   -ps  --project-start   <project_id>  Start project
-   -pr  --project-reset   <project_id>  Restart project
-   -pd  --project-delete  <project_id>  Delete project
-   -pe  --project-end     <project_id>  End project
+   -pn  --project-new           Register new project
+   -pl  --project-list          List available projects
+   -ps  --project-start   <id>  Start project
+   -pr  --project-reset   <id>  Restart project
+   -pd  --project-delete  <id>  Delete project
+   -pe  --project-end     <id>  End project
 
 Tools options:
-   -tl  --tools-list              List available tools
-   -tu  --tools-update   <tools>  Update tool or update all tools
-   -ti  --tools-install  <tools>  Install tool or install all tools
+   -tl  --tools-list             List available tools
+   -ti  --tools-install  <tool>  Install <tool>
+   -tu  --tools-update   <tool>  Update <tool>
+   -td  --tools-delete   <tool>  Delete <tool>
 
 Options:
-   -i   --initialize                Initialize ptmanager
    -T   --target         <target>   Set target server
    -a   --auth           <auth>     Set authorization code
    -S   --sid            <sid>      Set session ID
@@ -55,6 +59,7 @@ Options:
    -nv  --no-ssl-verify             Do not verify SSL connections
    -v   --version                   Show script version and exit
    -h   --help                      Show this help message and exit
+
 ```
 
 ## Dependencies
