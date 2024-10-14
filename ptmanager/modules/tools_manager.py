@@ -146,7 +146,7 @@ class ToolsManager:
         if invalid_tool_names:
             if not valid_tool_names:
                 self._print_tools_table(script_list)
-            print("")
+            print(" ")
             self.ptjsonlib.end_error(f"Unrecognized Tool(s): [{', '.join(invalid_tool_names)}]", self.use_json)
 
 

@@ -41,7 +41,6 @@ class Daemon:
         # Start the socket server in a separate thread
         self.socket_server_thread = threading.Thread(target=self.start_socket_server, daemon=True)
         self.socket_server_thread.start()
-
         # Start loop
         self.start_loop(args.target, args.auth)
 
@@ -99,7 +98,6 @@ class Daemon:
             task_dict["satid"] = self.config.get_satid()
             task_dict.pop("pid", None)  # Safely remove 'pid' if it exists
             task_dict.pop("timeStamp", None)  # Safely remove 'timeStamp' if it exists
-            print("K odeslani:", json.dumps(task_dict, indent=4))
 
             # Send the task to the API
             response = self.send_to_api(end_point="result", data=task_dict)

@@ -7,7 +7,7 @@ class Process:
         self.PID = PID
 
     def is_running(self) -> bool:
-        "Check if process is running"
+        """Check if process is running"""
         if self.PID is None:
             return False
         try:
@@ -17,7 +17,7 @@ class Process:
             return False
 
     def kill(self) -> bool:
-        "Tries to kill process with PID"
+        """Tries to kill process with PID"""
         try:
             os.kill(self.PID, signal.SIGTERM) # Tries to kill process
             return True

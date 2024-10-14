@@ -41,6 +41,7 @@ class PtManager:
         self.proxies: dict        = args.proxy
         self.no_ssl_verify: bool  = args.no_ssl_verify
         self.use_json: bool       = False
+        self.debug: bool          = args.debug
 
     def run(self, args: argparse.Namespace) -> None:
         """Main method"""
@@ -85,7 +86,7 @@ class PtManager:
         self.config.save()
 
     def _get_project_manager(self) -> ProjectManager:
-        return ProjectManager(ptjsonlib=self.ptjsonlib, use_json=self.use_json, proxies=self.proxies, no_ssl_verify=self.no_ssl_verify, config=self.config)
+        return ProjectManager(ptjsonlib=self.ptjsonlib, use_json=self.use_json, proxies=self.proxies, no_ssl_verify=self.no_ssl_verify, config=self.config, debug=self.debug)
 
     def _get_tools_manager(self) -> ToolsManager:
         return ToolsManager(ptjsonlib=self.ptjsonlib, use_json=self.use_json)
@@ -173,6 +174,7 @@ def parse_args():
     parser.add_argument("--socket-address",          type=str, default=None)
     parser.add_argument("--port",                    type=str, default=None)
     parser.add_argument("--process-ident",           type=str, default=None)
+    parser.add_argument("--debug",                   action="store_true")
 
 
     if len(sys.argv) == 1 or "-h" in sys.argv or "--help" in sys.argv:
@@ -183,7 +185,7 @@ def parse_args():
     if int(bool(args.project_start))+int(bool(args.project_end))+int(bool(args.project_reset))+int(bool(args.project_delete)) > 1:
         ptjsonlib.PtJsonLib().end_error("Cannot combine project --start/--end/--reset/--delete  arguments together", True)
 
-    ptprinthelper.print_banner(SCRIPTNAME, __version__, False, 1)
+    ptprinthelper.print_banner(SCRIPTNAME, __version__, False, 0)
     return args
 
 
