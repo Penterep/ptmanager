@@ -3,6 +3,7 @@ import re
 import os
 import sys; sys.path.extend([__file__.rsplit("/", 1)[0], os.path.join(__file__.rsplit("/", 1)[0], "modules")])
 import requests
+import time
 import threading
 
 from ptlibs import ptjsonlib, ptprinthelper
@@ -12,15 +13,7 @@ class ToolsManager:
     def __init__(self, ptjsonlib: ptjsonlib.PtJsonLib, use_json: bool) -> None:
         self.ptjsonlib = ptjsonlib
         self.use_json = use_json
-
-    def print_available_tools(self) -> None:
-        try:
-            self._print_tools_table(self._get_script_list_from_api())
-        except KeyboardInterrupt:
-            stop_spinner = True  # Stop spinner on Ctrl+C
-            sys.stdout.write("\033[?25h")  # Ensure cursor is shown
-            sys.stdout.flush()
-            print("\nProcess interrupted by user.")
+        self._stop_spinner = False
 
     def _print_tools_table(self, tool_list_from_api, tools2update: list = None, tools2install: list = None, tools2delete: list = None) -> None:
         print(f"{ptprinthelper.get_colored_text('Tool name', 'TITLE')}{' '*9}{ptprinthelper.get_colored_text('Installed', 'TITLE')}{' '*10}{ptprinthelper.get_colored_text('Latest', 'TITLE')}")
@@ -63,30 +56,22 @@ class ToolsManager:
                 else:
                     print("")
 
-    def _spinner(self):
-        import time
-        # Hide cursor using ANSI escape sequence
-        sys.stdout.write("\033[?25l")  # Hide cursor
-        sys.stdout.flush()
-        while not stop_spinner:  # Spinner poběží, dokud stop_spinner není True
-            for symbol in '|/-\\':  # Sekvence znaků pro spinner
-                sys.stdout.write(f'\r[{ptprinthelper.get_colored_text(string=symbol, color="TITLE")}] Retrieving tools ...')  # \r přepíše řádek
-                sys.stdout.flush()
-                time.sleep(0.1)
-        # Show cursor again when spinner stops
-        sys.stdout.write("\033[?25h")  # Show cursor
-        sys.stdout.flush()
-
+    def print_available_tools(self) -> None:
+        try:
+            self._print_tools_table(self._get_script_list_from_api())
+        except KeyboardInterrupt:
+            self._stop_spinner = True
+            sys.stdout.write("\033[?25h")  # Ensure cursor is shown
+            sys.stdout.flush()
+            print("\nProcess interrupted by user.")
+            sys.exit(1)
 
     def _get_script_list_from_api(self) -> list:
         """Retrieve available tools from API"""
 
-        global stop_spinner
-        stop_spinner = False  # Resetuje flag pro spinner
         spinner_thread = threading.Thread(target=self._spinner, daemon=True)
-        spinner_thread.start()  # Spustí spinner v novém vlákně
+        spinner_thread.start()  # Retrieving tools spinner...
 
-        #print("Retrieving tools...", end="\r")
         try:
             available_tools = requests.get("https://raw.githubusercontent.com/Penterep/ptmanager/main/ptmanager/available_tools.txt").text.split("\n")
             available_tools = sorted(list(set([tool.strip() for tool in available_tools if tool.strip() and not tool.startswith("#")])))
@@ -98,9 +83,8 @@ class ToolsManager:
                 response = response.json()
                 script_list.append({"name": tool, "version": list(response['releases'].keys())[-1]})
 
-
         except Exception as e:
-            stop_spinner = True  # Zastaví spinner při chybě
+            self._stop_spinner = True
             spinner_thread.join()
             sys.stdout.write("\r" + " " * 40 + "\r")  # Clear the line in case of error
             sys.stdout.flush()
@@ -111,9 +95,8 @@ class ToolsManager:
             sys.stdout.write("\033[?25h")  # Show cursor
             sys.stdout.flush()
 
-        stop_spinner = True  # Zastaví spinner při chybě
+        self._stop_spinner = True
         spinner_thread.join()
-        #print(" ")
         sys.stdout.write("\r" + " " * 40 + "\r")  # Clear line using spaces and carriage return
         return sorted(script_list, key=lambda x: x['name'])
 
@@ -175,8 +158,8 @@ class ToolsManager:
             #self._print_tools_table(self._get_script_list_from_api())
             script_list = self._get_script_list_from_api()
         except KeyboardInterrupt:
-            stop_spinner = True  # Stop spinner on Ctrl+C
-            sys.stdout.write("\033[?25h")  # Ensure cursor is shown
+            self._stop_spinner = True
+            sys.stdout.write("\033[?25h")
             sys.stdout.flush()
             print("\nProcess interrupted by user.")
             sys.exit(1)
@@ -206,3 +189,16 @@ class ToolsManager:
         """Checks if tool_name is present in script_list"""
         if tool_name in [script["name"] for script in script_list]:
             return True
+
+
+    def _spinner(self):
+        sys.stdout.write("\033[?25l")  # Hide cursor
+        sys.stdout.flush()
+        while not self._stop_spinner:
+            for symbol in '|/-\\':
+                sys.stdout.write(f'\r[{ptprinthelper.get_colored_text(string=symbol, color="TITLE")}] Retrieving tools ...')  # \r přepíše řádek
+                sys.stdout.flush()
+                time.sleep(0.1)
+        # Show cursor again when spinner stops
+        sys.stdout.write("\033[?25h")
+        sys.stdout.flush()
