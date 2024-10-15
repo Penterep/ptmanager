@@ -180,7 +180,7 @@ class ProjectManager:
                 status = "-"
                 pid = "-"
 
-            port = project["port"] if project["port"] else "-"
+            port = project.get("port", "-")
             print(f"{index}{' '*(6-len(str(index)))}", end="")
             print(f"{project['project_name']}{' '*(32-len(project['project_name']))}", end="")
             print(f"{str(pid)}{' '*(10-len(str(pid)))}", end="")
