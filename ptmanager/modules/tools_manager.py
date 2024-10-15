@@ -3,6 +3,7 @@ import re
 import os
 import sys; sys.path.extend([__file__.rsplit("/", 1)[0], os.path.join(__file__.rsplit("/", 1)[0], "modules")])
 import requests
+import threading
 
 from ptlibs import ptjsonlib, ptprinthelper
 
@@ -13,11 +14,17 @@ class ToolsManager:
         self.use_json = use_json
 
     def print_available_tools(self) -> None:
-        self._print_tools_table(self._get_script_list_from_api())
+        try:
+            self._print_tools_table(self._get_script_list_from_api())
+        except KeyboardInterrupt:
+            stop_spinner = True  # Stop spinner on Ctrl+C
+            sys.stdout.write("\033[?25h")  # Ensure cursor is shown
+            sys.stdout.flush()
+            print("\nProcess interrupted by user.")
 
     def _print_tools_table(self, tool_list_from_api, tools2update: list = None, tools2install: list = None, tools2delete: list = None) -> None:
         print(f"{ptprinthelper.get_colored_text('Tool name', 'TITLE')}{' '*9}{ptprinthelper.get_colored_text('Installed', 'TITLE')}{' '*10}{ptprinthelper.get_colored_text('Latest', 'TITLE')}")
-        print(f"{'-'*20}{'-'*19}{'-'*19}{'-'*6}")
+        print(f"{'-'*20}{'-'*19}{'-'*19}{'-'*6}{'-'*7}")
 
         for ptscript in tool_list_from_api:
             is_installed, local_version = self.check_if_tool_is_installed(ptscript['name'])
@@ -56,9 +63,30 @@ class ToolsManager:
                 else:
                     print("")
 
+    def _spinner(self):
+        import time
+        # Hide cursor using ANSI escape sequence
+        sys.stdout.write("\033[?25l")  # Hide cursor
+        sys.stdout.flush()
+        while not stop_spinner:  # Spinner poběží, dokud stop_spinner není True
+            for symbol in '|/-\\':  # Sekvence znaků pro spinner
+                sys.stdout.write(f'\r[{ptprinthelper.get_colored_text(string=symbol, color="TITLE")}] Retrieving tools ...')  # \r přepíše řádek
+                sys.stdout.flush()
+                time.sleep(0.1)
+        # Show cursor again when spinner stops
+        sys.stdout.write("\033[?25h")  # Show cursor
+        sys.stdout.flush()
+
+
     def _get_script_list_from_api(self) -> list:
         """Retrieve available tools from API"""
-        print("Fetching tools...", end="\r")
+
+        global stop_spinner
+        stop_spinner = False  # Resetuje flag pro spinner
+        spinner_thread = threading.Thread(target=self._spinner, daemon=True)
+        spinner_thread.start()  # Spustí spinner v novém vlákně
+
+        #print("Retrieving tools...", end="\r")
         try:
             available_tools = requests.get("https://raw.githubusercontent.com/Penterep/ptmanager/main/ptmanager/available_tools.txt").text.split("\n")
             available_tools = sorted(list(set([tool.strip() for tool in available_tools if tool.strip() and not tool.startswith("#")])))
@@ -69,9 +97,24 @@ class ToolsManager:
                     continue
                 response = response.json()
                 script_list.append({"name": tool, "version": list(response['releases'].keys())[-1]})
-        except Exception as e:
-            self.ptjsonlib.end_error(f"Error retrieving tools from api - {e}", self.use_json)
 
+
+        except Exception as e:
+            stop_spinner = True  # Zastaví spinner při chybě
+            spinner_thread.join()
+            sys.stdout.write("\r" + " " * 40 + "\r")  # Clear the line in case of error
+            sys.stdout.flush()
+            self.ptjsonlib.end_error(f"Error retrieving tools from API", self.use_json)
+
+        finally:
+            # Ensure cursor is shown even if an error occurs or if interrupted
+            sys.stdout.write("\033[?25h")  # Show cursor
+            sys.stdout.flush()
+
+        stop_spinner = True  # Zastaví spinner při chybě
+        spinner_thread.join()
+        #print(" ")
+        sys.stdout.write("\r" + " " * 40 + "\r")  # Clear line using spaces and carriage return
         return sorted(script_list, key=lambda x: x['name'])
 
 
@@ -127,7 +170,16 @@ class ToolsManager:
     def prepare_install_update_delete_tools(self, tools2prepare: list, do_update: bool=None, do_install: bool=None, do_delete: bool = None) -> None:
         """Prepare provided tools for installation or update or deletion"""
         tools2prepare = set([tool.lower() for unparsed_tool in tools2prepare for tool in unparsed_tool.split(",") if tool])
-        script_list = self._get_script_list_from_api()
+
+        try:
+            #self._print_tools_table(self._get_script_list_from_api())
+            script_list = self._get_script_list_from_api()
+        except KeyboardInterrupt:
+            stop_spinner = True  # Stop spinner on Ctrl+C
+            sys.stdout.write("\033[?25h")  # Ensure cursor is shown
+            sys.stdout.flush()
+            print("\nProcess interrupted by user.")
+            sys.exit(1)
 
         if "all" in tools2prepare:
             tools2prepare = [tool["name"] for tool in script_list]
