@@ -164,7 +164,7 @@ class Daemon:
             if file != "tasks.json":
                 os.remove(os.path.join(self.project_dir, file))
 
-        # TODO - KillAllThreads?
+        # TODO: Kill all task threads
         self.lock.acquire()
         with self.open_file(self.project_tasks_file, "r+") as tasks_file:
             try:
