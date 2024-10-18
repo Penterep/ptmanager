@@ -1,7 +1,10 @@
-from ptlibs import ptprinthelper
+from ptlibs import ptprinthelper, ptjsonlib
 import json
 import os
 import shutil
+import sys
+
+from utils import prompt_confirmation
 
 class Config:
     NAME = "config.json"
@@ -11,13 +14,19 @@ class Config:
     PID_KEY = "pid"
     PORT_KEY = "port"
 
+
     def __init__(self, config_path: str) -> None:
         self._config_path = config_path
         self._config: dict[list] = None
         try:
             self.load()
-        except (FileNotFoundError, json.JSONDecodeError):
+        except FileNotFoundError:
             self.make()
+        except json.JSONDecodeError:
+            if prompt_confirmation(f"Error parsing {self.NAME}. Fix it manually or create a new one.", "Create new one?", bullet_type="ERROR"):
+                self.make()
+            else:
+                sys.exit(1)
 
     def __repr__(self) -> None:
         print(self._config)
@@ -61,7 +70,12 @@ class Config:
         return temp_path
 
     def get_projects(self) -> list:
-        return self._config[self.PROJECTS_KEY]
+        try:
+            return self._config[self.PROJECTS_KEY]
+        except KeyError:
+            self._config[self.PROJECTS_KEY] = []
+            self.save()
+            return self.get_projects()
 
 
     def get_satid(self) -> str:
@@ -100,4 +114,8 @@ class Config:
 
 
     def get_project(self, project_id: int):
-        return self._config[self.PROJECTS_KEY][project_id]
+        try:
+            return self._config[self.PROJECTS_KEY][project_id]
+        except Exception as e:
+            print(f"Error retrieving project - {e}")
+            sys.exit(1)
