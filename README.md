@@ -53,7 +53,6 @@ Tools options:
 Options:
    -T   --target         <target>   Set target server
    -a   --auth           <auth>     Set authorization code
-   -S   --sid            <sid>      Set session ID
    -t   --threads        <threads>  Set number of threads
    -p   --proxy                     Set proxy
    -nv  --no-ssl-verify             Do not verify SSL connections

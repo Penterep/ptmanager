@@ -124,7 +124,6 @@ def get_help() -> list[dict[str,any]]:
         {"options": [
             ["-T",   "--target",                 "<target>",         "Set target server"],
             ["-a",   "--auth",                   "<auth>",           "Set authorization code"],
-            ["-S",   "--sid",                    "<sid>",            "Set session ID"],
             ["-t",   "--threads",                "<threads>",        "Set number of threads"],
             ["-p",   "--proxy",                  "",                 "Set proxy"],
             ["-nv",  "--no-ssl-verify",          "",                 "Do not verify SSL connections"],
@@ -161,7 +160,6 @@ def parse_args():
 
     parser.add_argument("-T",    "--target",          type=str)
     parser.add_argument("-a",    "--auth",            type=str)
-    parser.add_argument("-S",    "--sid",             type=str)
     parser.add_argument("-t",    "--threads",         type=int, default=20)
     parser.add_argument("-v",    "--version",         action="version", version=f"{SCRIPTNAME} {__version__}")
 
