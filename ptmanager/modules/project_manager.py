@@ -15,6 +15,7 @@ from urllib.parse import urlparse
 
 from config import Config
 from process import Process
+from utils import prompt_confirmation
 
 
 class ProjectManager:
@@ -28,6 +29,7 @@ class ProjectManager:
         #TODO: Implementovat přepínač pro insecure SSL a upravit všechny requesty, aby s tímto přepínačem spolupracovaly
 
     def register_project(self, target_url: str, auth_token: str) -> None:
+        """Registers new project."""
         if not target_url:
             self.ptjsonlib.end_error("Missing --target parameter", self.use_json)
         if not auth_token:
@@ -36,15 +38,12 @@ class ProjectManager:
             self.ptjsonlib.end_error("Please run 'ptmanager --init' first.", self.use_json)
         if not target_url.endswith("/"):
             target_url += "/"
+        for project in self.config.get_projects():
+            if project.get('auth') == auth_token:
+                self.ptjsonlib.end_error("Provided authorization token has already been used.", self.use_json)
 
         try:
-            """Register project on server"""
-            for project in self.config.get_projects():
-                if project['auth'] == auth_token:
-                    self.ptjsonlib.end_error("Provided authorization token has already been used.", self.use_json)
-
             ptprinthelper.ptprint(f"Registering new project ...", "TITLE", condition=True, colortext=False, clear_to_eol=True)
-
             try:
                 response = requests.post(url=self._get_registration_url(target_url), proxies=self.proxies, allow_redirects=False, verify=self.no_ssl_verify, data=json.dumps({"token": auth_token, "satid": self.config.get_satid()}), headers={"Content-Type": "application/json"})
                 if response.status_code != 200:
@@ -60,7 +59,6 @@ class ProjectManager:
                 self.list_projects()
             else:
                 raise Exception("Invalid response data")
-
         except Exception as e:
             self.ptjsonlib.end_error(f"Registering new project: {e}.", self.use_json)
 
@@ -78,7 +76,7 @@ class ProjectManager:
 
         try:
             project_port = 10000 + project_id
-            response = {"sessionid": "sessionid"} # FIXME: Implement sessionId
+            #response = {"sessionid": "sessionid"} # FIXME: Implement sessionId
 
             subprocess_args = [sys.executable, os.path.realpath(os.path.join(__file__.rsplit("/", 1)[0], "daemon.py")), "--target", project["target"], "--auth", project["auth"], "--sid", response["sessionid"], "--project-id", project["AS-ID"], "--port", str(project_port)]
             if self.proxies.get("http"):
@@ -136,7 +134,7 @@ class ProjectManager:
             self.ptjsonlib.end_error(f"Project {self.config.get_project(project_id).get('project_name')} is not running", self.use_json)
 
     def delete_project(self, project_id: int) -> None:
-        # TODO: Send request to delete project from AS
+        """Removes project locally and attempts to unpair it from AS."""
         if self.config.get_pid(project_id):
             self.ptjsonlib.end_error(f"Project is running, end project first", self.use_json)
 
@@ -152,7 +150,7 @@ class ProjectManager:
             ptprinthelper.ptprint(f"Project {project.get('project_name')} deleted succesfully", "TITLE", condition=True, colortext=False, clear_to_eol=True)
         except (requests.RequestException) as e:
             ptprinthelper.ptprint(f"Server is not responding", "ERROR")
-            if self._yes_no_prompt("Cannot delete project from AS. Delete TS from server manualy.\nProject will be deleted locally only. Unpair from AS manually. Are you sure?", bullet_type=None):
+            if prompt_confirmation("Cannot delete project from AS. Delete TS from server manualy.\nProject will be deleted locally only. Unpair from AS manually."):
                 self.config.remove_project(project_id)
                 ptprinthelper.ptprint_(ptprinthelper.out_ifnot(f"local project deleted succesfully", "OK"))
         finally:
@@ -180,7 +178,7 @@ class ProjectManager:
                 status = "-"
                 pid = "-"
 
-            port = project.get("port", "-")
+            port = project.get("port", "-") or "-"
             print(f"{index}{' '*(6-len(str(index)))}", end="")
             print(f"{project['project_name']}{' '*(32-len(project['project_name']))}", end="")
             print(f"{str(pid)}{' '*(10-len(str(pid)))}", end="")
@@ -191,7 +189,7 @@ class ProjectManager:
     def register_uid(self) -> None:
         UID = str(uuid.uuid1())
         if self.config.get_satid():
-            if self._yes_no_prompt("This will delete all your existing projects. This action cannot be undone."):
+            if prompt_confirmation(f"This will delete all your existing projects. This action cannot be undone.", bullet_type="TEXT"):
                 self.config.delete_projects()
                 self.config.delete()
                 self.config.make()
@@ -201,23 +199,11 @@ class ProjectManager:
         else:
             self.config.set_satid(UID)
 
-    def _yes_no_prompt(self, message) -> bool:
-        print(message)
-        action = input(f'Are you sure? (y/n): ').upper().strip()
-        if action == "Y":
-            return True
-        elif action == "N" or action == "":
-            return False
-        else:
-            return self._yes_no_prompt(message)
-
-
     def _get_unique_project_name(self, base_name):
-        """Returns unique project name."""
+        """Returns unique project name if project with <base_name> already exists."""
         project_name = base_name
         counter = 1
 
-        # Kontrola, zda projekt s daným názvem už existuje
         while any(project.get("project_name") == project_name for project in self.config.get_projects()):
             project_name = f"{base_name} ({counter})"
             counter += 1
@@ -225,7 +211,7 @@ class ProjectManager:
         return project_name
 
     def _get_registration_url(self, url: str):
-        """Replace url path with /api/v1/sat/register"""
+        """Replaces <url> path with /api/v1/sat/register"""
         parsed_url = urlparse(url)
         # Check if the URL is valid
         if all([parsed_url.scheme, parsed_url.netloc]) and parsed_url.scheme in ["http", "https"]:
