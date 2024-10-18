@@ -32,8 +32,8 @@ class Daemon:
         self.lock                    = threading.Lock() # Tasks lock
         self.socket_lock             = threading.Lock() # Socket lock
 
-        if not args.target or not args.auth or not args.sid:
-            self.ptjsonlib.end_error(f"Target, auth and sid are required", self.use_json)
+        if not args.target or not args.auth :
+            self.ptjsonlib.end_error(f"Target and auth are required", self.use_json)
 
         if not os.path.isdir(self.project_dir):
             os.makedirs(self.project_dir)
@@ -305,7 +305,7 @@ class Daemon:
                 return {"guid": response_data["data"]["guid"], "action": response_data["data"]["action"], "task": response_data["data"]["command"]}
             else:
                 if response.status_code == 401:
-                    print("Unauthorized - check your sid")
+                    print("Unauthorized")
                 elif response.status_code == 400:
                     print("Queque empty")
                 else:
@@ -366,7 +366,6 @@ def parse_args():
     parser = argparse.ArgumentParser(add_help=False)
     parser.add_argument("--target",          type=str)
     parser.add_argument("--auth",            type=str)
-    parser.add_argument("--sid",             type=str)
     parser.add_argument("--project-id",     type=str)
     parser.add_argument("--proxy",           type=str)
     parser.add_argument("--port",            type=str)

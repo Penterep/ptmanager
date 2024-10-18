@@ -76,9 +76,7 @@ class ProjectManager:
 
         try:
             project_port = 10000 + project_id
-            #response = {"sessionid": "sessionid"} # FIXME: Implement sessionId
-
-            subprocess_args = [sys.executable, os.path.realpath(os.path.join(__file__.rsplit("/", 1)[0], "daemon.py")), "--target", project["target"], "--auth", project["auth"], "--sid", response["sessionid"], "--project-id", project["AS-ID"], "--port", str(project_port)]
+            subprocess_args = [sys.executable, os.path.realpath(os.path.join(__file__.rsplit("/", 1)[0], "daemon.py")), "--target", project["target"], "--auth", project["auth"], "--project-id", project["AS-ID"], "--port", str(project_port)]
             if self.proxies.get("http"):
                 subprocess_args += ["--proxy", self.proxies.get("http")]
             if not self.no_ssl_verify:
