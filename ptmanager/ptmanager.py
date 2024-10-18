@@ -21,10 +21,6 @@ import os
 import sys; sys.path.extend([__file__.rsplit("/", 1)[0], os.path.join(__file__.rsplit("/", 1)[0], "modules")])
 import threading
 
-if os.getuid() == 0:
-    print("This script should not be run as root. Exiting.")
-    sys.exit(1)
-
 from _version import __version__
 from modules.config import Config
 from modules.project_manager import ProjectManager
@@ -47,7 +43,7 @@ class PtManager:
         """Main method"""
 
         if args.init or not self.config.get_satid():
-            self._get_project_manager().register_uid() # Generate uid
+            self._get_project_manager().register_uid()
 
         elif args.project_new:
             self._get_project_manager().register_project(args.target, args.auth)
@@ -67,7 +63,6 @@ class PtManager:
         elif args.project_list:
             self._get_project_manager().list_projects()
 
-        # Handle Tool Manager
         elif args.tools_list:
             self._get_tools_manager().print_available_tools()
 
@@ -127,7 +122,6 @@ def get_help() -> list[dict[str,any]]:
             ]
         },
         {"options": [
-            #["-i",  "--initialize",            "",                  "Initialize ptmanager"],
             ["-T",   "--target",                 "<target>",         "Set target server"],
             ["-a",   "--auth",                   "<auth>",           "Set authorization code"],
             ["-S",   "--sid",                    "<sid>",            "Set session ID"],
