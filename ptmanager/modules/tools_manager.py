@@ -5,15 +5,17 @@ import sys; sys.path.extend([__file__.rsplit("/", 1)[0], os.path.join(__file__.r
 import requests
 import time
 import threading
+import json
 
 from ptlibs import ptjsonlib, ptprinthelper
-
 
 class ToolsManager:
     def __init__(self, ptjsonlib: ptjsonlib.PtJsonLib, use_json: bool) -> None:
         self.ptjsonlib = ptjsonlib
         self.use_json = use_json
         self._stop_spinner = False
+        self._is_sudo = os.geteuid() == 0
+        self._is_venv = True if hasattr(sys, 'base_prefix') and sys.base_prefix != sys.prefix else False
 
     def _print_tools_table(self, tool_list_from_api, tools2update: list = None, tools2install: list = None, tools2delete: list = None) -> None:
         print(f"{ptprinthelper.get_colored_text('Tool name', 'TITLE')}{' '*9}{ptprinthelper.get_colored_text('Installed', 'TITLE')}{' '*10}{ptprinthelper.get_colored_text('Latest', 'TITLE')}")
@@ -28,6 +30,11 @@ class ToolsManager:
                 if ptscript["name"] in tools2install:
                     if not is_installed:
                         print(self._install_update_delete_tools(tool_name=ptscript["name"], do_install=True))
+                        if self._is_venv:
+                            try:
+                                subprocess.run(["/usr/local/bin/register-tools", ptscript["name"]], check=True)
+                            except:
+                                pass
                     else:
                         print("Already installed")
                 else:
@@ -68,7 +75,6 @@ class ToolsManager:
 
     def _get_script_list_from_api(self) -> list:
         """Retrieve available tools from API"""
-
         spinner_thread = threading.Thread(target=self._spinner, daemon=True)
         spinner_thread.start()  # Retrieving tools spinner...
 
@@ -88,7 +94,7 @@ class ToolsManager:
             spinner_thread.join()
             sys.stdout.write("\r" + " " * 40 + "\r")  # Clear the line in case of error
             sys.stdout.flush()
-            self.ptjsonlib.end_error(f"Error retrieving tools from API", self.use_json)
+            self.ptjsonlib.end_error(f"Error retrieving tools from API (f{e})", self.use_json)
 
         finally:
             # Ensure cursor is shown even if an error occurs or if interrupted
@@ -104,8 +110,14 @@ class ToolsManager:
     def check_if_tool_is_installed(self, tool_name) -> tuple[bool, str]:
         try:
             p = subprocess.run([tool_name, "-v"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-            local_version = p.stdout.split()[-1] # gets version
-            is_installed = True
+
+            if re.compile(r'^\w*\s\d\.\d\.\d$').match(p.stdout.strip()):
+                script_name, version = p.stdout.strip().split()
+                is_installed = True
+                local_version = version
+            else:
+                is_installed = False
+                local_version = "-"
         except FileNotFoundError:
             local_version = "-"
             is_installed = False
@@ -125,12 +137,15 @@ class ToolsManager:
             process_args = ["pip", "install", tool_name, "--upgrade"]
 
         if do_delete:
-            if tool_name in ["ptlibs"]:
+            if tool_name in ["ptlibs", "ptmanager"]:
                 return "Cannot be deleted from ptmanager"
             process_args = ["pip", "uninstall", tool_name, "-y"]
 
+        try:
+            process = subprocess.run(process_args, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, check=True) # install/update/delete
+        except Exception as e:
+            return "error"
 
-        process = subprocess.run(process_args, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True) # install/update/delete
         if do_delete:
             try:
                 process = subprocess.run([tool_name, "-v"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True) # check new version
@@ -152,6 +167,10 @@ class ToolsManager:
 
     def prepare_install_update_delete_tools(self, tools2prepare: list, do_update: bool=None, do_install: bool=None, do_delete: bool = None) -> None:
         """Prepare provided tools for installation or update or deletion"""
+
+        if self._is_venv and not self._is_sudo:
+            self.ptjsonlib.end_error(f"Please run script as sudo for those operations.", self.use_json)
+
         tools2prepare = set([tool.lower() for unparsed_tool in tools2prepare for tool in unparsed_tool.split(",") if tool])
 
         try:
