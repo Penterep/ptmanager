@@ -149,6 +149,8 @@ class ToolsManager:
         if do_delete:
             try:
                 process = subprocess.run([tool_name, "-v"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True) # check new version
+                if "not installed" in process.stdout.lower():
+                    return "Uninstall: OK"
             except FileNotFoundError as e:
                 return f"Uninstall: OK"
             except:
