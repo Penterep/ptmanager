@@ -36,8 +36,9 @@ class ToolsManager:
                             except:
                                 pass
                     else:
-                        print("Already installed")
+                        print(" ")
                 else:
+                    # Uninstalled / Not installed
                     print("")
 
             if tools2delete:
@@ -45,7 +46,7 @@ class ToolsManager:
                     if is_installed:
                         print(self._install_update_delete_tools(tool_name=ptscript["name"], do_delete=True))
                     else:
-                        print("Already uninstalled")
+                        print("")
                 else:
                     print("")
 
@@ -55,13 +56,15 @@ class ToolsManager:
                         if local_version.replace(".", "") < remote_version.replace(".", ""):
                             print(self._install_update_delete_tools(tool_name=ptscript["name"], local_version=local_version, do_update=True))
                         elif local_version.replace(".", "") == remote_version.replace(".", ""):
-                            print("Already latest version")
+                            print(" ")
+                            # print("Already latest version")
                         else:
                             print("Current version is > than the available version.")
                     else:
-                        print("Install first before updating")
+                        # print("Install first before updating")
+                        print(" ")
                 else:
-                    print("")
+                    print(" ")
 
     def print_available_tools(self) -> None:
         try:
@@ -87,14 +90,15 @@ class ToolsManager:
                 if response.status_code != 200:
                     continue
                 response = response.json()
-                script_list.append({"name": tool, "version": list(response['releases'].keys())[-1]})
+                #script_list.append({"name": tool, "version": list(response['releases'].keys())[-1]})
+                script_list.append({"name": tool, "version": response["info"]["version"]})
 
         except Exception as e:
             self._stop_spinner = True
             spinner_thread.join()
             sys.stdout.write("\r" + " " * 40 + "\r")  # Clear the line in case of error
             sys.stdout.flush()
-            self.ptjsonlib.end_error(f"Error retrieving tools from API (f{e})", self.use_json)
+            self.ptjsonlib.end_error(f"Error retrieving tools from API ({e})", self.use_json)
 
         finally:
             # Ensure cursor is shown even if an error occurs or if interrupted
@@ -111,7 +115,7 @@ class ToolsManager:
         try:
             p = subprocess.run([tool_name, "-v"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
 
-            if re.compile(r'^\w*\s\d\.\d\.\d$').match(p.stdout.strip()):
+            if re.compile(r'^\w*\s\d{1,3}\.\d{1,3}\.\d{1,3}$').match(p.stdout.strip()):
                 script_name, version = p.stdout.strip().split()
                 is_installed = True
                 local_version = version
@@ -144,7 +148,7 @@ class ToolsManager:
         try:
             process = subprocess.run(process_args, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, check=True) # install/update/delete
         except Exception as e:
-            return "error"
+            return f"error: {e}"
 
         if do_delete:
             try:
@@ -171,7 +175,9 @@ class ToolsManager:
         """Prepare provided tools for installation or update or deletion"""
 
         if self._is_venv and not self._is_sudo:
-            self.ptjsonlib.end_error(f"Please run script as sudo for those operations.", self.use_json)
+            ptprinthelper.ptprint(f"Please run script as sudo for those operations.", )
+            sys.exit(1)
+
 
         tools2prepare = set([tool.lower() for unparsed_tool in tools2prepare for tool in unparsed_tool.split(",") if tool])
 
