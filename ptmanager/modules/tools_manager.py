@@ -21,10 +21,15 @@ class ToolsManager:
         print(f"{ptprinthelper.get_colored_text('Tool name', 'TITLE')}{' '*9}{ptprinthelper.get_colored_text('Installed', 'TITLE')}{' '*10}{ptprinthelper.get_colored_text('Latest', 'TITLE')}")
         print(f"{'-'*20}{'-'*19}{'-'*19}{'-'*6}{'-'*7}")
 
+        name_col_width = 20
+        local_ver_col_width = 10
+        remote_ver_col_width = 10
+
         for ptscript in tool_list_from_api:
             is_installed, local_version = self.check_if_tool_is_installed(ptscript['name'])
             remote_version = ptscript["version"]
-            print(f"{ptscript['name']}{' '*(20-len(ptscript['name']))}{local_version}{' '*(19-len(local_version))}{remote_version}{' '*5}", end="" if tools2update or tools2install or tools2delete else "\n", flush=True)
+            #print(f"{ptscript['name']}{' '*(20-len(ptscript['name']))}{local_version}{' '*(19-len(local_version))}{remote_version}{' '*5}", end="" if tools2update or tools2install or tools2delete else "\n", flush=True)
+            print(f"{ptscript['name']:<{name_col_width}} {local_version:<{local_ver_col_width}}      {ptscript['version']:<{remote_ver_col_width}}", end="" if tools2update or tools2install or tools2delete else "\n", flush=True)
 
             if tools2install:
                 if ptscript["name"] in tools2install:
@@ -36,7 +41,7 @@ class ToolsManager:
                             except:
                                 pass
                     else:
-                        print(" ")
+                        print("Already installed")
                 else:
                     # Uninstalled / Not installed
                     print("")
@@ -46,7 +51,7 @@ class ToolsManager:
                     if is_installed:
                         print(self._install_update_delete_tools(tool_name=ptscript["name"], do_delete=True))
                     else:
-                        print("")
+                        print("Not installed")
                 else:
                     print("")
 
@@ -56,13 +61,11 @@ class ToolsManager:
                         if local_version.replace(".", "") < remote_version.replace(".", ""):
                             print(self._install_update_delete_tools(tool_name=ptscript["name"], local_version=local_version, do_update=True))
                         elif local_version.replace(".", "") == remote_version.replace(".", ""):
-                            print(" ")
-                            # print("Already latest version")
+                            print("Already latest version")
                         else:
                             print("Current version is > than the available version.")
                     else:
-                        # print("Install first before updating")
-                        print(" ")
+                        print("Install first before updating")
                 else:
                     print(" ")
 
@@ -175,9 +178,8 @@ class ToolsManager:
         """Prepare provided tools for installation or update or deletion"""
 
         if self._is_venv and not self._is_sudo:
-            ptprinthelper.ptprint(f"Please run script as sudo for those operations.", )
+            ptprinthelper.ptprint(f"Please run script as sudo for those operations.")
             sys.exit(1)
-
 
         tools2prepare = set([tool.lower() for unparsed_tool in tools2prepare for tool in unparsed_tool.split(",") if tool])
 
