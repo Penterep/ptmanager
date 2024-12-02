@@ -151,7 +151,7 @@ class ToolsManager:
         try:
             process = subprocess.run(process_args, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, check=True) # install/update/delete
         except Exception as e:
-            return f"error: {e}"
+            return f"error"
 
         if do_delete:
             try:
@@ -167,7 +167,7 @@ class ToolsManager:
                 process = subprocess.run([tool_name, "-v"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True) # check new version
                 new_version = process.stdout.split()[1]
             except Exception as e:
-                return f"- -> Updated: Error - {e}"
+                return f"error"
             if do_update:
                 return f"{local_version} -> {new_version} Updated: OK"
             else:
