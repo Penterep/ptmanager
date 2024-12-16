@@ -58,9 +58,11 @@ class ToolsManager:
             if tools2update:
                 if ptscript["name"] in tools2update:
                     if is_installed:
-                        if local_version.replace(".", "") < remote_version.replace(".", ""):
+                        local_version_tuple = tuple(map(int, local_version.split(".")))
+                        remote_version_tuple = tuple(map(int, remote_version.split(".")))
+                        if local_version_tuple < remote_version_tuple:
                             print(self._install_update_delete_tools(tool_name=ptscript["name"], local_version=local_version, do_update=True))
-                        elif local_version.replace(".", "") == remote_version.replace(".", ""):
+                        elif local_version == remote_version:
                             print("Already latest version")
                         else:
                             print("Current version is > than the available version.")
