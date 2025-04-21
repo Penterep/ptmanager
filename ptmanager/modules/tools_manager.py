@@ -6,8 +6,8 @@ import requests
 import time
 import threading
 import json
-
 from ptlibs import ptjsonlib, ptprinthelper
+from concurrent.futures import ThreadPoolExecutor
 
 class ToolsManager:
     def __init__(self, ptjsonlib: ptjsonlib.PtJsonLib, use_json: bool) -> None:
@@ -87,32 +87,38 @@ class ToolsManager:
         spinner_thread.start()  # Retrieving tools spinner...
 
         try:
-            available_tools = requests.get("https://raw.githubusercontent.com/Penterep/ptmanager/main/ptmanager/available_tools.txt").text.split("\n")
-            available_tools = sorted(list(set([tool.strip() for tool in available_tools if tool.strip() and not tool.startswith("#")])))
+            url = "https://raw.githubusercontent.com/Penterep/ptmanager/main/ptmanager/available_tools.txt"
+            available_tools = requests.get(url).text.split("\n")
+            tools = sorted(set(tool.strip() for tool in available_tools if tool.strip() and not tool.startswith("#")))
+
+            def fetch_tool_info(tool):
+                try:
+                    response = requests.get(f'https://pypi.org/pypi/{tool}/json')
+                    if response.status_code == 200:
+                        data = response.json()
+                        return {"name": tool, "version": data["info"]["version"]}
+                except:
+                    return None
+
             script_list = []
-            for tool in available_tools:
-                response = requests.get(f'https://pypi.python.org/pypi/{tool}/json')
-                if response.status_code != 200:
-                    continue
-                response = response.json()
-                #script_list.append({"name": tool, "version": list(response['releases'].keys())[-1]})
-                script_list.append({"name": tool, "version": response["info"]["version"]})
+            with ThreadPoolExecutor(max_workers=10) as executor:
+                results = executor.map(fetch_tool_info, tools)
+                script_list = [res for res in results if res]
 
         except Exception as e:
             self._stop_spinner = True
             spinner_thread.join()
-            sys.stdout.write("\r" + " " * 40 + "\r")  # Clear the line in case of error
+            sys.stdout.write("\r" + " " * 40 + "\r")
             sys.stdout.flush()
             self.ptjsonlib.end_error(f"Error retrieving tools from API ({e})", self.use_json)
 
         finally:
-            # Ensure cursor is shown even if an error occurs or if interrupted
-            sys.stdout.write("\033[?25h")  # Show cursor
+            sys.stdout.write("\033[?25h")
             sys.stdout.flush()
 
         self._stop_spinner = True
         spinner_thread.join()
-        sys.stdout.write("\r" + " " * 40 + "\r")  # Clear line using spaces and carriage return
+        sys.stdout.write("\r" + " " * 40 + "\r")
         return sorted(script_list, key=lambda x: x['name'])
 
 
