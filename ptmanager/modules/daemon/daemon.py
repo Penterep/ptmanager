@@ -46,6 +46,7 @@ class Daemon:
         self.burpsuite_listener_thread.start()
 
         self.current_guid = None  # GUID úlohy BurpSuitePlugin
+
         self.processing_thread = threading.Thread(target=self.process_incoming_burpsuite_data, daemon=True)
         self.processing_thread.start()
 
@@ -59,16 +60,17 @@ class Daemon:
         while True:
             if self.current_guid is None:
                 # No GUID yet – Discard received queue data.
-                try:
-                    while True:
+                while True:
+                    try:
                         discarded_data = self.burpsuite_data_queue.get_nowait()
-                        #print("[DISCARD (no GUID yet)]:", discarded_data)
-                except queue.Empty:
-                    pass
-                time.sleep(1)
+                    except queue.Empty:
+                        break
             else:
-                burp_data = self.burpsuite_data_queue.get()
-                self.handle_burp_data_with_guid(burp_data, self.current_guid)
+                try:
+                    burp_data = self.burpsuite_data_queue.get_nowait()
+                    self.handle_burp_data_with_guid(burp_data, self.current_guid)
+                except queue.Empty:
+                    continue
 
     def handle_burp_data_with_guid(self, data, guid):
             data["guid"] = guid
@@ -149,11 +151,10 @@ class Daemon:
 
     def send_to_api(self, end_point, data) -> requests.Response:
         target = self.target + "api/v1/sat/" + end_point
-        #response = requests.post(target, data=json.dumps(data), verify=self.no_ssl_verify, headers={"Content-Type": "application/json"}, proxies=self.proxies, allow_redirects=False)
         response = requests.post(target, data=json.dumps(data), verify=self.no_ssl_verify, headers={"Content-Type": "application/json"}, proxies=self.proxies, allow_redirects=False)
 
         if response.status_code != 200:
-            print(f"Error: Expected status code is 200, got {response.status_code}")
+            print(f"Error sending to {'api/v1/sat/' + end_point}: Expected status code is 200, got {response.status_code}")
         return response
 
     def status_task(self, task) -> None:
