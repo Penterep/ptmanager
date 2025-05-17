@@ -40,6 +40,9 @@ class PtManager:
         self.debug: bool          = args.debug
 
 
+        if args.debug:
+            print("[INFO] Config location:", os.path.join(os.path.expanduser("~"), ".ptmanager/"), end="\n\n")
+
     def run(self, args: argparse.Namespace) -> None:
         """Main method"""
 
