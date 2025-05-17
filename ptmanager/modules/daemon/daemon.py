@@ -2,7 +2,7 @@ import argparse
 import json; from json.decoder import JSONDecodeError
 import os
 import subprocess
-import sys; sys.path.extend([__file__.rsplit("/", 1)[0], os.path.join(__file__.rsplit("/", 1)[0], "modules")])
+import sys; sys.path.extend([__file__.rsplit("/", 1)[0], os.path.join(__file__.rsplit("/", 3)[0], "modules")])
 import socket
 import threading
 import time
@@ -12,7 +12,9 @@ import requests
 
 from process import Process
 from config import Config
+from burp_listener import BurpSocketListener
 
+from queue import Queue # Thread safe
 
 class Daemon:
     def __init__(self, args):
@@ -21,6 +23,7 @@ class Daemon:
         self.target: str             = args.target
         self.no_ssl_verify: bool     = args.no_ssl_verify
         self.socket_port: str        = args.port
+        self.burpsuite_port          = args.port
         self.socket_address: str     = "127.0.0.1"
         self.proxies: dict           = {"http": args.proxy, "https": args.proxy}
 
@@ -32,17 +35,42 @@ class Daemon:
         self.lock                    = threading.Lock() # Tasks lock
         self.socket_lock             = threading.Lock() # Socket lock
 
-        if not args.target or not args.auth :
-            self.ptjsonlib.end_error(f"Target and auth are required", self.use_json)
-
+        # Create project_dir if not exists
         if not os.path.isdir(self.project_dir):
             os.makedirs(self.project_dir)
 
-        # Start the socket server in a separate thread
-        self.socket_server_thread = threading.Thread(target=self.start_socket_server, daemon=True)
-        self.socket_server_thread.start()
+        # Start burp socket listener
+        self.burpsuite_data_queue = Queue()
+        self.burpsuite_listener_thread = threading.Thread(target=self.start_burp_listener, args=(self.burpsuite_data_queue,), daemon=True)
+        self.burpsuite_listener_thread.start()
+
+        # Nezapojuj processing thread hned, bude se startovat až s GUID
+        self.processing_thread = None
+        self.current_guid = None  # GUID úlohy BurpSuitePlugin
+
         # Start loop
         self.start_loop(args.target, args.auth)
+
+    def start_burp_listener(self, queue):
+        self.burp_listener = BurpSocketListener(port=int(self.socket_port), data_callback=lambda d: queue.put(d))
+
+    def process_incoming_burpsuite_data(self):
+        while True:
+            if self.current_guid is None:
+                # No GUID yet – discard all queued data.
+                try:
+                    while True:
+                        self.burpsuite_data_queue.get_nowait()
+                except queue.Empty:
+                    pass
+                time.sleep(1)
+            else:
+                burp_data = self.burpsuite_data_queue.get()
+                self.handle_burp_data_with_guid(burp_data, self.current_guid)
+
+    def handle_burp_data_with_guid(self, data, guid):
+            data["guid"] = guid
+            self.send_to_api("result-proxy", data)
 
     def start_loop(self, target, auth) -> None:
         """Main loop"""
@@ -53,18 +81,29 @@ class Daemon:
             # Send local results to application server
             self.send_results_to_server(target)
 
-            # Retrieve tasks from application server
+            # Retrieve task from application server
             task = self.get_task_from_server(target, auth)
+
             if not task:
                 time.sleep(10)
                 continue
 
-            print("Received task:", task)
-
+            #print("Received task:", task)
             if task["action"] == "new_task":
-                thread_no = self.free_threads.pop()
-                self.threads_list[thread_no] = threading.Thread(target=self.process_task, name=task["guid"], args=(task, thread_no), daemon=False)
-                self.threads_list[thread_no].start()
+
+                if task["command"].lower() == "BurpSutePlugin".lower():
+                    self.current_guid = task["guid"]
+
+                    if self.processing_thread is None or not self.processing_thread.is_alive():
+                        self.processing_thread = threading.Thread(target=self.process_incoming_burpsuite_data, daemon=True)
+                        self.processing_thread.start()
+                        continue
+                else:
+                    # Run external automat
+                    thread_no = self.free_threads.pop()
+                    self.threads_list[thread_no] = threading.Thread(target=self.process_task, name=task["guid"], args=(task, thread_no), daemon=False)
+                    self.threads_list[thread_no].start()
+
             elif task["action"] == "status":
                 self.status_task(task)
             elif task["action"] == "status-all":
@@ -111,6 +150,7 @@ class Daemon:
 
     def send_to_api(self, end_point, data) -> requests.Response:
         target = self.target + "api/v1/sat/" + end_point
+        #response = requests.post(target, data=json.dumps(data), verify=self.no_ssl_verify, headers={"Content-Type": "application/json"}, proxies=self.proxies, allow_redirects=False)
         response = requests.post(target, data=json.dumps(data), verify=self.no_ssl_verify, headers={"Content-Type": "application/json"}, proxies=self.proxies, allow_redirects=False)
         if response.status_code != 200:
             print(f"Error: Expected status code is 200, got {response.status_code}")
@@ -212,7 +252,6 @@ class Daemon:
             finally:
                 self.lock.release()
 
-
     def open_file(self, filename, mode):
         """
         Open a file in the specified mode, creating it if it doesn't exist.
@@ -240,7 +279,7 @@ class Daemon:
 
         # Call automat, save output to <automat_output_file>.
         with open(automat_output_path, "w+") as automat_output_file:
-            automat_subprocess = subprocess.Popen(task["task"].split(), stdout=automat_output_file, stderr=automat_output_file, text=True)
+            automat_subprocess = subprocess.Popen(task["command"].split(), stdout=automat_output_file, stderr=automat_output_file, text=True)
             automat_result = {"guid": task["guid"], "pid": automat_subprocess.pid, "timeStamp": time.time(), "status": "running", "results": None}
 
         with self.lock:
@@ -302,17 +341,17 @@ class Daemon:
             response = requests.post(tasks_url, data=json.dumps({"satid": self.config.get_satid()}), verify=self.no_ssl_verify, proxies=self.proxies, headers={"Content-Type": "application/json"}, allow_redirects=False)
             if response.status_code == 200:
                 response_data = response.json()
-                return {"guid": response_data["data"]["guid"], "action": response_data["data"]["action"], "task": response_data["data"]["command"]}
+
+                # If empty queue, return
+                if response_data.get("message", "").lower() == "Test queue is empty".lower():
+                    return
+
+                return {"guid": response_data.get("data", dict()).get("guid"), "action": response_data.get("data", dict()).get("action"), "command": response_data.get("data", dict()).get("command")}
             else:
-                if response.status_code == 401:
-                    print("Unauthorized")
-                elif response.status_code == 400:
-                    print("Queque empty")
-                else:
-                    print(f"Unexpected status code when retrieving tasks: {response.status_code}")
+                print(f"Unexpected status code when retrieving tasks: {response.status_code}")
                 return
-        except:
-            print("Error sending request to server to retrieve tasks")
+        except Exception as e:
+            print("Error sending request to server to retrieve tasks", e)
             return
 
     def _delete_task_from_tasks(self, task) -> None:
@@ -328,44 +367,10 @@ class Daemon:
         open_file.write(data)
 
 
-    def start_socket_server(self):
-        server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        server.bind((self.socket_address, int(self.socket_port)))
-        server.listen(100) # Backlog limit
-        print(f"Socket Server listening on port {self.socket_port}")
-
-        while True:
-            client_socket, addr = server.accept()
-            print(f"Accepted connection from {addr}")
-            client_handler = threading.Thread(target=self.handle_socket_client, args=(client_socket,))
-            client_handler.start()
-
-    def handle_socket_client(self, client_socket):
-        try:
-            # Read until a newline character is found
-            buffer = ""
-            while True:
-                data = client_socket.recv(1024).decode()
-                print(json.loads(data), type(json.loads(data)))
-                if not data:
-                    break
-                buffer += data
-                if "\n" in buffer:
-                    request, buffer = buffer.split("\n", 1)
-                    # Acquire the lock before processing the request
-                    with self.socket_lock:
-                        # Process the request and save it
-                        #self.process_request(request)
-                        # Send an acknowledgment back to the client
-                        print(request)
-                        client_socket.send("Message received by server.\n".encode())
-        finally:
-            client_socket.close()
-
 def parse_args():
     parser = argparse.ArgumentParser(add_help=False)
-    parser.add_argument("--target",          type=str)
-    parser.add_argument("--auth",            type=str)
+    parser.add_argument("--target",          type=str, required=True)
+    parser.add_argument("--auth",            type=str, required=True)
     parser.add_argument("--project-id",     type=str)
     parser.add_argument("--proxy",           type=str)
     parser.add_argument("--port",            type=str)

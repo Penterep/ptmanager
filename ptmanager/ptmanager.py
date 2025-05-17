@@ -39,6 +39,7 @@ class PtManager:
         self.use_json: bool       = False
         self.debug: bool          = args.debug
 
+
     def run(self, args: argparse.Namespace) -> None:
         """Main method"""
 

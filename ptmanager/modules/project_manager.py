@@ -50,12 +50,13 @@ class ProjectManager:
                     raise Exception(f"Expected status code 200, got {response.status_code}")
             except requests.RequestException:
                 raise Exception("Error communicating with server, check your URL")
-
             response_data = response.json()
             if response_data.get("success"):
                 ptprinthelper.ptprint(f"{response_data['message']}\n", "TITLE", condition=True, colortext=False, clear_to_eol=True)
+                #print(response.json())
                 project_name = self._get_unique_project_name(base_name=response_data['data']['name'])
-                self.config.add_project({"project_name": project_name, "target": target_url, "auth": auth_token, "pid": None, "port": None, "AS-ID": ''.join(random.choice(string.ascii_lowercase + string.digits) for _ in range(8))})
+                tenant = response_data['data'].get("tenant")
+                self.config.add_project({"project_name": project_name, "tenant": tenant, "target": target_url, "auth": auth_token, "pid": None, "port": None, "AS-ID": ''.join(random.choice(string.ascii_lowercase + string.digits) for _ in range(8))})
                 self.list_projects()
             else:
                 raise Exception("Invalid response data")
@@ -64,30 +65,39 @@ class ProjectManager:
 
 
     def start_project(self, project_id: int, list_projects: bool = True) -> None:
+        """Starts project with provided <project_id>"""
         project: dict = self.config.get_project(project_id)
 
         if project.get("pid"):
             if not Process(project["pid"]).is_running():
-                self.config.set_project_pid(project, None)
+                self.config.set_project_pid(project_id, None)
             else:
                 self.list_projects()
                 print(" ")
                 self.ptjsonlib.end_error(f"Project {self.config.get_project(project_id).get('project_name', '')} is already running (PID: {project['pid']})", self.use_json)
 
         try:
-            project_port = 10000 + project_id
-            subprocess_args = [sys.executable, os.path.realpath(os.path.join(__file__.rsplit("/", 1)[0], "daemon.py")), "--target", project["target"], "--auth", project["auth"], "--project-id", project["AS-ID"], "--port", str(project_port)]
+            project_port: int = 10000 + project_id # burp
+
+            #print(os.path.join(__file__.rsplit("/", 3)[0]))
+
+            # Construct daemon args
+            #subprocess_args = [sys.executable, "-m", ,"daemon", "daemon.py")), "--target", project["target"], "--auth", project["auth"], "--project-id", project["AS-ID"], "--port", str(project_port)]
+            subprocess_args = [sys.executable, os.path.realpath(os.path.join(__file__.rsplit("/", 1)[0], "daemon", "daemon.py")), "--target", project["target"], "--auth", project["auth"], "--project-id", project["AS-ID"], "--port", str(project_port)]
             if self.proxies.get("http"):
                 subprocess_args += ["--proxy", self.proxies.get("http")]
             if not self.no_ssl_verify:
                 subprocess_args += ["--no_ssl_verify"]
+
+            if not project["target"] or not project["auth"] :
+                self.ptjsonlib.end_error(f"Target and auth are required", self.use_json)
+
 
             # Start daemon.py via subprocess
             if self.debug:
                 process = subprocess.Popen(subprocess_args, text=True)
             else:
                 process = subprocess.Popen(subprocess_args, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-
 
         except Exception as e:
             self.ptjsonlib.end_error(e, self.use_json)
@@ -102,7 +112,7 @@ class ProjectManager:
         process_pid = self.config.get_pid(project_id)
         if process_pid:
             try:
-                os.kill(process_pid, signal.SIGTERM)
+                os.kill(process_pid, signal.SIGKILL)
                 self.config.set_project_pid(project_id, None)
                 self.config.set_project_port(project_id, None)
                 ptprinthelper.ptprint(f"Killed project {self.config.get_project(project_id).get('project_name', '')} (PID: {process_pid})", "OK", condition=True, colortext=False, clear_to_eol=True)
@@ -115,6 +125,7 @@ class ProjectManager:
                 self.config.set_project_pid(project_id, None)
                 self.config.set_project_port(project_id, None)
             except Exception as e:
+                self.config.set_project_port(project_id, None)
                 self.ptjsonlib.end_error(e, self.use_json)
         else:
             self.list_projects()
@@ -157,8 +168,8 @@ class ProjectManager:
 
 
     def list_projects(self) -> None:
-        print(f"{ptprinthelper.get_colored_text('ID', 'TITLE')}{' '*4}{ptprinthelper.get_colored_text('Project Name', 'TITLE')}{' '*20}{ptprinthelper.get_colored_text('PID', 'TITLE')}{' '*7}{ptprinthelper.get_colored_text('Status', 'TITLE')}{' '*9}{ptprinthelper.get_colored_text('Port', 'TITLE')}")
-        print(f"{'-'*6}{'-'*32}{'-'*10}{'-'*15}{'-'*5}")
+        print(f"{ptprinthelper.get_colored_text('ID', 'TITLE')}{' '*4}{ptprinthelper.get_colored_text('Project Name', 'TITLE')}{' '*10}{ptprinthelper.get_colored_text('Tenant', 'TITLE')}{' '*9}{ptprinthelper.get_colored_text('PID', 'TITLE')}{' '*7}{ptprinthelper.get_colored_text('Status', 'TITLE')}{' '*9}{ptprinthelper.get_colored_text('Port', 'TITLE')}{' '*10}")
+        print(f"{'-'*6}{'-'*32}{'-'*10}{'-'*15}{'-'*5}{'-'*8}")
         if not self.config.get_projects():
             print(" ")
             self.ptjsonlib.end_error("No projects found, register a project first", self.use_json)
@@ -167,6 +178,7 @@ class ProjectManager:
             if project["pid"]:
                 if not Process(project["pid"]).is_running():
                     self.config.set_project_pid(index - 1, None)
+                    self.config.set_project_port(index - 1, None)
                     project["pid"] = None
 
             pid = project["pid"]
@@ -177,11 +189,16 @@ class ProjectManager:
                 pid = "-"
 
             port = project.get("port", "-") or "-"
+
+            tenant = project.get('tenant', '-')
+
             print(f"{index}{' '*(6-len(str(index)))}", end="")
-            print(f"{project['project_name']}{' '*(32-len(project['project_name']))}", end="")
+            print(f"{project['project_name']}{' '*(22-len(project['project_name']))}", end="")
+            print(f"{tenant}{' '*(15-len(str(tenant)))}",       end="")
             print(f"{str(pid)}{' '*(10-len(str(pid)))}", end="")
             print(f"{status}{' '*(15-len(status))}", end="")
             print(f"{port}{' '*(15-len(str(port)))}", end="")
+
             print("")
 
     def register_uid(self) -> None:

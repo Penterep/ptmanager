@@ -14,7 +14,6 @@ class Config:
     PID_KEY = "pid"
     PORT_KEY = "port"
 
-
     def __init__(self, config_path: str) -> None:
         self._config_path = config_path
         self._config: dict[list] = None
