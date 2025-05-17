@@ -96,6 +96,19 @@ class BurpSocketListener:
                     print(f"[ERROR] Failed to parse JSON: {e}")
                     return None
 
+    def send_data_to_client(self, data):
+        """Send JSON data to the connected client (Burp plugin)."""
+        if not self.client_connection:
+            print("[WARN] No client connected. Cannot send data.")
+            return
+
+        try:
+            message = json.dumps(data) + "__endS0ck3tMsg__"
+            self.client_connection.sendall(message.encode('utf-8'))
+            print("[INFO] Sent data to Burp plugin:", data)
+        except Exception as e:
+            print(f"[ERROR] Failed to send data to client: {e}")
+
 def parse_args():
     parser = argparse.ArgumentParser(usage=f"burp_listener.py <options>")
     parser.add_argument("--port", type=int, required=True)
