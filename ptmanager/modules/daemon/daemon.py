@@ -94,7 +94,7 @@ class Daemon:
             print("Received task:", task)
             if task["action"] == "new_task":
 
-                if task["command"].lower() == "BurpSutePlugin".lower():
+                if task["command"].lower() == "BurpSuitePlugin".lower():
                     self.current_guid = task["guid"]
                     continue
                 else:
