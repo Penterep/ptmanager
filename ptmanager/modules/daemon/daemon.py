@@ -14,6 +14,7 @@ from process import Process
 from config import Config
 from burp_listener import BurpSocketListener
 
+import queue
 from queue import Queue # Thread safe
 
 class Daemon:
@@ -44,11 +45,11 @@ class Daemon:
         self.burpsuite_listener_thread = threading.Thread(target=self.start_burp_listener, args=(self.burpsuite_data_queue,), daemon=True)
         self.burpsuite_listener_thread.start()
 
-        # Nezapojuj processing thread hned, bude se startovat až s GUID
-        self.processing_thread = None
         self.current_guid = None  # GUID úlohy BurpSuitePlugin
+        self.processing_thread = threading.Thread(target=self.process_incoming_burpsuite_data, daemon=True)
+        self.processing_thread.start()
 
-        # Start loop
+        # Start AS loop
         self.start_loop(args.target, args.auth)
 
     def start_burp_listener(self, queue):
@@ -57,10 +58,11 @@ class Daemon:
     def process_incoming_burpsuite_data(self):
         while True:
             if self.current_guid is None:
-                # No GUID yet – discard all queued data.
+                # No GUID yet – Discard received queue data.
                 try:
                     while True:
-                        self.burpsuite_data_queue.get_nowait()
+                        discarded_data = self.burpsuite_data_queue.get_nowait()
+                        #print("[DISCARD (no GUID yet)]:", discarded_data)
                 except queue.Empty:
                     pass
                 time.sleep(1)
@@ -75,6 +77,7 @@ class Daemon:
     def start_loop(self, target, auth) -> None:
         """Main loop"""
         while True:
+
             while not self.free_threads:
                 time.sleep(8)
 
@@ -88,16 +91,12 @@ class Daemon:
                 time.sleep(10)
                 continue
 
-            #print("Received task:", task)
+            print("Received task:", task)
             if task["action"] == "new_task":
 
                 if task["command"].lower() == "BurpSutePlugin".lower():
                     self.current_guid = task["guid"]
-
-                    if self.processing_thread is None or not self.processing_thread.is_alive():
-                        self.processing_thread = threading.Thread(target=self.process_incoming_burpsuite_data, daemon=True)
-                        self.processing_thread.start()
-                        continue
+                    continue
                 else:
                     # Run external automat
                     thread_no = self.free_threads.pop()
@@ -152,6 +151,7 @@ class Daemon:
         target = self.target + "api/v1/sat/" + end_point
         #response = requests.post(target, data=json.dumps(data), verify=self.no_ssl_verify, headers={"Content-Type": "application/json"}, proxies=self.proxies, allow_redirects=False)
         response = requests.post(target, data=json.dumps(data), verify=self.no_ssl_verify, headers={"Content-Type": "application/json"}, proxies=self.proxies, allow_redirects=False)
+
         if response.status_code != 200:
             print(f"Error: Expected status code is 200, got {response.status_code}")
         return response
@@ -347,8 +347,12 @@ class Daemon:
                     return
 
                 return {"guid": response_data.get("data", dict()).get("guid"), "action": response_data.get("data", dict()).get("action"), "command": response_data.get("data", dict()).get("command")}
+
             else:
-                print(f"Unexpected status code when retrieving tasks: {response.status_code}")
+                if response.status_code == 401:
+                    print("[401 Unauthorized] Got not authorized response when receieving task from AS.")
+                else:
+                    print(f"Unexpected status code when retrieving tasks: {response.status_code}")
                 return
         except Exception as e:
             print("Error sending request to server to retrieve tasks", e)
