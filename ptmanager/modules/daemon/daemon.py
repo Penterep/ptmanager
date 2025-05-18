@@ -45,7 +45,7 @@ class Daemon:
         self.burpsuite_listener_thread = threading.Thread(target=self.start_burp_listener, args=(self.burpsuite_data_queue,), daemon=True)
         self.burpsuite_listener_thread.start()
 
-        self.current_guid = None  # GUID úlohy BurpSuitePlugin
+        self.current_guid = None # GUID úlohy BurpSuitePlugin
 
         self.processing_thread = threading.Thread(target=self.process_incoming_burpsuite_data, daemon=True)
         self.processing_thread.start()
@@ -74,7 +74,20 @@ class Daemon:
 
     def handle_burp_data_with_guid(self, data, guid):
             data["guid"] = guid
-            self.send_to_api("result-proxy", data)
+            data["satid"] = self.config.get_satid()
+
+            response = self.send_to_api("result-proxy", data)
+
+            """
+            response_data = [
+                {"GUID1-FROM-RESULT":"GUID1-FROM-PLATFORM"},
+                {"GUID2-FROM-RESULT":"GUID2-FROM-PLATFORM"},
+                {"GUID3-FROM-RESULT":"ok"},
+                {"GUID4-FROM-RESULT":"error"}
+            ]
+            """
+
+            #self.burp_listener.send_data_to_client(res_data)
 
     def start_loop(self, target, auth) -> None:
         """Main loop"""
