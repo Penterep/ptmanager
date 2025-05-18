@@ -34,7 +34,6 @@ class Daemon:
         self.free_threads            = [i for i in range(args.threads)]
         self.threads_list            = ["" for _ in range(args.threads)]
         self.lock                    = threading.Lock() # Tasks lock
-        self.socket_lock             = threading.Lock() # Socket lock
 
         # Create project_dir if not exists
         if not os.path.isdir(self.project_dir):
@@ -45,7 +44,7 @@ class Daemon:
         self.burpsuite_listener_thread = threading.Thread(target=self.start_burp_listener, args=(self.burpsuite_data_queue,), daemon=True)
         self.burpsuite_listener_thread.start()
 
-        self.current_guid = None # GUID úlohy BurpSuitePlugin
+        self.current_guid = None
 
         self.processing_thread = threading.Thread(target=self.process_incoming_burpsuite_data, daemon=True)
         self.processing_thread.start()
@@ -78,8 +77,18 @@ class Daemon:
 
             response = self.send_to_api("result-proxy", data)
 
+            if not response:
+                return
+
+            try:
+                res_data = response.json()
+                if res_data.get("success"):
+                    self.burp_listener.send_data_to_client(res_data.get("data"))
+            except:
+                return
+
             """
-            response_data = [
+            [
                 {"GUID1-FROM-RESULT":"GUID1-FROM-PLATFORM"},
                 {"GUID2-FROM-RESULT":"GUID2-FROM-PLATFORM"},
                 {"GUID3-FROM-RESULT":"ok"},
@@ -87,7 +96,6 @@ class Daemon:
             ]
             """
 
-            #self.burp_listener.send_data_to_client(res_data)
 
     def start_loop(self, target, auth) -> None:
         """Main loop"""
@@ -110,6 +118,7 @@ class Daemon:
             if task["action"] == "new_task":
 
                 if task["command"].lower() == "BurpSuitePlugin".lower():
+                    #if args.debug: print(f"BurpSuitePlugin: {task['guid']}")
                     self.current_guid = task["guid"]
                     continue
                 else:
