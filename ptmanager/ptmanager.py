@@ -29,7 +29,6 @@ from modules.tools_manager import ToolsManager
 import requests
 from ptlibs import ptprinthelper, ptjsonlib
 
-
 class PtManager:
     def __init__(self, args) -> None:
         self.ptjsonlib: object    = ptjsonlib.PtJsonLib()
@@ -39,8 +38,7 @@ class PtManager:
         self.use_json: bool       = False
         self.debug: bool          = args.debug
 
-
-        if args.debug:
+        if self.debug:
             print("[INFO] Config location:", os.path.join(os.path.expanduser("~"), ".ptmanager/"), end="\n\n")
 
     def run(self, args: argparse.Namespace) -> None:

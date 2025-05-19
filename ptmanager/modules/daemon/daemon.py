@@ -27,7 +27,6 @@ class Daemon:
         self.burpsuite_port          = args.port
         self.socket_address: str     = "127.0.0.1"
         self.proxies: dict           = {"http": args.proxy, "https": args.proxy}
-
         self.project_dir: str        = os.path.join(self.config.get_path(), "projects", self.project_id)
         self.project_tasks_file: str = os.path.join(self.project_dir, "tasks.json")
 
@@ -77,25 +76,12 @@ class Daemon:
 
             response = self.send_to_api("result-proxy", data)
 
-            if not response:
-                return
-
             try:
                 res_data = response.json()
                 if res_data.get("success"):
                     self.burp_listener.send_data_to_client(res_data.get("data"))
             except:
                 return
-
-            """
-            [
-                {"GUID1-FROM-RESULT":"GUID1-FROM-PLATFORM"},
-                {"GUID2-FROM-RESULT":"GUID2-FROM-PLATFORM"},
-                {"GUID3-FROM-RESULT":"ok"},
-                {"GUID4-FROM-RESULT":"error"}
-            ]
-            """
-
 
     def start_loop(self, target, auth) -> None:
         """Main loop"""
@@ -114,11 +100,10 @@ class Daemon:
                 time.sleep(10)
                 continue
 
-            print("Received task:", task)
+            print("New task:", task)
             if task["action"] == "new_task":
 
                 if task["command"].lower() == "BurpSuitePlugin".lower():
-                    #if args.debug: print(f"BurpSuitePlugin: {task['guid']}")
                     self.current_guid = task["guid"]
                     continue
                 else:
