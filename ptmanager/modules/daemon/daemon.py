@@ -7,7 +7,7 @@ import socket
 import threading
 import time
 import pathlib
-
+import urllib
 import requests
 
 from process import Process
@@ -16,6 +16,8 @@ from burp_listener import BurpSocketListener
 
 import queue
 from queue import Queue # Thread safe
+
+from task_store import TaskStore
 
 class Daemon:
     def __init__(self, args):
@@ -28,7 +30,9 @@ class Daemon:
         self.socket_address: str     = "127.0.0.1"
         self.proxies: dict           = {"http": args.proxy, "https": args.proxy}
         self.project_dir: str        = os.path.join(self.config.get_path(), "projects", self.project_id)
+
         self.project_tasks_file: str = os.path.join(self.project_dir, "tasks.json")
+        self.task_store              = TaskStore(self.project_tasks_file)
 
         self.free_threads            = [i for i in range(args.threads)]
         self.threads_list            = ["" for _ in range(args.threads)]
@@ -39,145 +43,97 @@ class Daemon:
             os.makedirs(self.project_dir)
 
         # Start burp socket listener
-        self.burpsuite_data_queue = Queue()
-        self.burpsuite_listener_thread = threading.Thread(target=self.start_burp_listener, args=(self.burpsuite_data_queue,), daemon=True)
+        self.burpsuite_listener_thread = threading.Thread(target=self.start_burp_listener, args=(Queue(), ), daemon=True)
         self.burpsuite_listener_thread.start()
-
-        self.current_guid = None
-
-        self.processing_thread = threading.Thread(target=self.process_incoming_burpsuite_data, daemon=True)
-        self.processing_thread.start()
 
         # Start AS loop
         self.start_loop(args.target, args.auth)
 
     def start_burp_listener(self, queue):
-        self.burp_listener = BurpSocketListener(port=int(self.socket_port), data_callback=lambda d: queue.put(d))
-
-    def process_incoming_burpsuite_data(self):
-        while True:
-            if self.current_guid is None:
-                # No GUID yet – Discard received queue data.
-                while True:
-                    try:
-                        discarded_data = self.burpsuite_data_queue.get_nowait()
-                    except queue.Empty:
-                        break
-            else:
-                try:
-                    burp_data = self.burpsuite_data_queue.get_nowait()
-                    self.handle_burp_data_with_guid(burp_data, self.current_guid)
-                except queue.Empty:
-                    continue
-
-    def handle_burp_data_with_guid(self, data, guid):
-            data["guid"] = guid
-            data["satid"] = self.config.get_satid()
-
-            response = self.send_to_api("result-proxy", data)
-
-            try:
-                res_data = response.json()
-                if res_data.get("success"):
-                    self.burp_listener.send_data_to_client(res_data.get("data"))
-            except:
-                return
+        """Start BurpSuite listener for incoming data."""
+        self.burp_listener = BurpSocketListener(daemon=self, config=self.config, port=int(self.socket_port), data_callback=lambda d: queue.put(d))
 
     def start_loop(self, target, auth) -> None:
-        """Main loop"""
+        """Main loop for task processing."""
         while True:
 
+            # Ensure there are free threads available
             while not self.free_threads:
                 time.sleep(8)
 
             # Send local results to application server
             self.send_results_to_server(target)
 
-            # Retrieve task from application server
+            # Retrieve and process tasks from the server
             task = self.get_task_from_server(target, auth)
 
-            if not task:
-                time.sleep(10)
+            if task:
+                self.process_task_based_on_action(task)
+            else:
+                time.sleep(5)
                 continue
 
-            print("New task:", task)
-            if task["action"] == "new_task":
+    def process_task_based_on_action(self, task):
+        """Process the task depending on its action type."""
+        print(f"New task: {task}")
+        if task["action"] == "new_task":
+            self.handle_new_task(task)
+        elif task["action"] == "status":
+            self.status_task(task)
+        elif task["action"] == "status-all":
+            self.status_all_tasks()
+        elif task["action"] == "kill-task":
+            self.kill_task(task)
+        elif task["action"] == "kill-all":
+            self.kill_all_tasks()
 
-                if task["command"].lower() == "BurpSuitePlugin".lower():
-                    self.current_guid = task["guid"]
-                    continue
-                else:
-                    # Run external automat
-                    thread_no = self.free_threads.pop()
-                    self.threads_list[thread_no] = threading.Thread(target=self.process_task, name=task["guid"], args=(task, thread_no), daemon=False)
-                    self.threads_list[thread_no].start()
+    def handle_new_task(self, task):
+        """Handle a new task."""
+        if task["command"].lower().startswith("burpsuiteplugin"):
+            self.handle_burpsuite_plugin_task(task)
+        else:
+            self.run_external_automat(task)
 
-            elif task["action"] == "status":
-                self.status_task(task)
-            elif task["action"] == "status-all":
-                self.status_all_tasks()
-            elif task["action"] == "kill-task":
-                self.kill_task(task)
-            elif task["action"] == "kill-all":
-                self.kill_all_tasks()
-            elif task["action"] == "null":
-                pass
+    def handle_burpsuite_plugin_task(self, task):
+        """Handle tasks related to BurpSuite plugin."""
+        parts = task["command"].strip().split()
+        if len(parts) == 2:
+            url = parts[1]
+            parsed_domain = urllib.parse.urlparse(url).netloc
+            self.burp_listener.domain_guid_map[parsed_domain] = task["guid"]
+            self.burp_listener.send_domain_to_burp_scope(url)
+
+    def run_external_automat(self, task):
+        """Run an external automation task."""
+        thread_no = self.free_threads.pop()
+        self.threads_list[thread_no] = threading.Thread(target=self.process_task, name=task["guid"], args=(task, thread_no), daemon=False)
+        self.threads_list[thread_no].start()
 
     def send_results_to_server(self, target) -> None:
-        """Send local results to application server"""
-        with self.lock:
-            # Open tasks.json file
-            with self.open_file(self.project_tasks_file, "r+") as tasks_file:
-                try:
-                    tasks_list: list = json.load(tasks_file)
-                except JSONDecodeError:
-                    tasks_list: list = []
+        """Send local results to application server."""
+        finished_tasks = self.task_store.pop_finished_tasks()
 
-        # Iterate in reverse order to safely modify the list
-        for task_index in range(len(tasks_list) - 1, -1, -1):
-            task_dict = tasks_list[task_index]
-
-            # Skip tasks that are still running
-            if task_dict["status"] == "running":
-                continue
-
-            # Prepare the task for sending
+        for task_dict in finished_tasks:
+            # Prepare task
             task_dict["satid"] = self.config.get_satid()
-            task_dict.pop("pid", None)  # Safely remove 'pid' if it exists
-            task_dict.pop("timeStamp", None)  # Safely remove 'timeStamp' if it exists
+            task_dict.pop("pid", None)
+            task_dict.pop("timeStamp", None)
 
-            # Send the task to the API
+            # Send to API
             response = self.send_to_api(end_point="result", data=task_dict)
-            if response.status_code == 200:
-                # Remove the task from the list
-                tasks_list.pop(task_index)
 
-                # Write the updated tasks_list to tasks.json immediately after removal
-                with self.open_file(self.project_tasks_file, "w") as tasks_file:
-                    json.dump(tasks_list, tasks_file, indent=4)  # Save the updated list
+            # If send fails, re-append the task to store (optional but useful)
+            if response.status_code != 200:
+                self.task_store.append_task(task_dict)
 
     def send_to_api(self, end_point, data) -> requests.Response:
+        """Send data to the API."""
         target = self.target + "api/v1/sat/" + end_point
         response = requests.post(target, data=json.dumps(data), verify=self.no_ssl_verify, headers={"Content-Type": "application/json"}, proxies=self.proxies, allow_redirects=False)
 
         if response.status_code != 200:
             print(f"Error sending to {'api/v1/sat/' + end_point}: Expected status code is 200, got {response.status_code}")
         return response
-
-    def status_task(self, task) -> None:
-        """Retrieve status of <task>, repairs tasks.json if task is not running"""
-        with self.lock:
-            with self.open_file(self.project_tasks_file, "r+") as tasks_file:
-                tasks_list = json.load(tasks_file)
-                for task_item in tasks_list:
-                    if task_item["guid"] == task["guid"]:
-                        if not Process(task_item["pid"]).is_running():
-                            task_item["status"] = "error"
-                            task_item["pid"] = None
-                tasks_file.seek(0)
-                tasks_file.truncate(0)
-                json.dump(tasks_list, tasks_file, indent=4)
-                #tasks_file.write(json.dumps(tasks_list, indent=4))
 
     def status_all_tasks(self) -> None:
         """
@@ -200,6 +156,21 @@ class Daemon:
                     json.dump(tasks_list, tasks_file, indent=4)
             except JSONDecodeError as e:
                 print("Error decoding JSON:", e)
+
+    def status_task(self, task) -> None:
+        """Retrieve status of <task>, repairs tasks.json if task is not running"""
+        with self.lock:
+            with self.open_file(self.project_tasks_file, "r+") as tasks_file:
+                tasks_list = json.load(tasks_file)
+                for task_item in tasks_list:
+                    if task_item["guid"] == task["guid"]:
+                        if not Process(task_item["pid"]).is_running():
+                            task_item["status"] = "error"
+                            task_item["pid"] = None
+                tasks_file.seek(0)
+                tasks_file.truncate(0)
+                json.dump(tasks_list, tasks_file, indent=4)
+                #tasks_file.write(json.dumps(tasks_list, indent=4))
 
     def kill_all_tasks(self) -> None:
         """Kills all tasks."""
@@ -280,103 +251,110 @@ class Daemon:
         return open(filename, mode)
 
     def process_task(self, task: dict, thread_no: int) -> None:
-        """Process task received from application server"""
+        """
+        Process a task received from the application server:
+        - Launches the external command defined in the task.
+        - Logs the execution status (running → finished).
+        - Parses and stores the tool output.
+        - Updates the task store with results.
+        - Frees the thread upon completion.
 
-        # Save automat result to temp at /home/.ptmanager/temp/<guid>
-        automat_output_path = os.path.join(self.config.get_temp_path(), task["guid"])
+        Args:
+            task (dict): Task dictionary containing at least "guid" and "command".
+            thread_no (int): Identifier of the worker thread handling this task.
+        """
 
-        # Call automat, save output to <automat_output_file>.
-        with open(automat_output_path, "w+") as automat_output_file:
-            automat_subprocess = subprocess.Popen(task["command"].split(), stdout=automat_output_file, stderr=automat_output_file, text=True)
-            automat_result = {"guid": task["guid"], "pid": automat_subprocess.pid, "timeStamp": time.time(), "status": "running", "results": None}
+        guid = task["guid"]
+        command = task["command"]
+        temp_path = os.path.join(self.config.get_temp_path(), guid) # /home/.ptmanager/temp/<guid>
 
-        with self.lock:
-            # Přečíst aktuální seznam úloh z tasks.json, pokud není vytvořen
-            with self.open_file(self.project_tasks_file, "r") as tasks_file:
-                try:
-                    tasks_list: list = json.load(tasks_file)
-                except JSONDecodeError:
-                    tasks_list: list = []
+        # Run external command (automat) and save result to temp_path
+        with open(temp_path, "w+") as output_file:
+            process = subprocess.Popen(
+                command.split(),
+                stdout=output_file,
+                stderr=output_file,
+                text=True
+            )
 
-            # Update <tasks_list> in memory
-            tasks_list.append(automat_result)
+        # Create running task record
+        running_task = {
+            "guid": guid,
+            "pid": process.pid,
+            "timeStamp": time.time(),
+            "status": "running",
+            "results": None
+        }
 
-            # Replace tasks.json content with the updated <tasks_list>
-            with self.open_file(self.project_tasks_file, "w") as tasks_file:
-                tasks_file.write(json.dumps(tasks_list, indent=4))
+        self.task_store.append_task(running_task)
 
-        # Wait for automat to finish
-        automat_subprocess.wait()
-        # Update automat_result status to 'finished' and remove the PID
-        automat_result.update({"status": "finished", "pid": None})
+        # Wait for completion
+        process.wait()
 
-        # Read automat result from <automat_output_file>
-        with open(automat_output_path, "r") as automat_output_file:
-            file_content = automat_output_file.read()
-            try:
-                tool_result = json.loads(file_content) # Output of arbitrary ptscript
-            except:
-                tool_result = {}
-                automat_result["message"] = f"Error description: {file_content if file_content else 'File is empty.'}"
+        # Load and parse result
+        try:
+            with open(temp_path, "r") as output_file:
+                output_content = output_file.read()
+                parsed_result = json.loads(output_content)
+        except Exception:
+            parsed_result = {}
+            output_content = output_content if output_content else "File is empty."
+            running_task["message"] = f"Error description: {output_content}"
 
-            automat_result["status"] = tool_result.get("status", "error")
-            automat_result["results"] = json.dumps(tool_result.get("results", {}))
+        # Update task with result
+        running_task.update({
+            "pid": None,
+            "status": parsed_result.get("status", "error"),
+            "results": json.dumps(parsed_result.get("results", {})),
+            "message": running_task.get("message")  # Optional
+        })
 
-        # Remove the result file
-        os.remove(automat_output_path)
+        self.task_store.update_task(guid, running_task)
 
-        # Acquire the lock again for updating tasks_list
-        with self.lock:
+        os.remove(temp_path)
 
-            # Load <tasks_list> from the tasks.json
-            with self.open_file(self.project_tasks_file, "r") as tasks_file:
-                tasks_list = json.load(tasks_file)
-            # Update <tasks_list> with the finished automat result
-            for task_index, task_dict in enumerate(tasks_list):
-                if task_dict["guid"] == automat_result["guid"]:
-                    tasks_list[task_index] = automat_result
-            # Replace the content with the updated <tasks_list>
-            with self.open_file(self.project_tasks_file, "w") as tasks_file:
-                tasks_file.write(json.dumps(tasks_list, indent=4))
-
-        # Release the lock and append the thread number to free_threads list
+        # Mark thread as free
         self.free_threads.append(thread_no)
 
 
-    def get_task_from_server(self, target=None, auth=None) -> dict:
+    def get_task_from_server(self, target=None, auth=None) -> dict | None:
+        """Retrieve a new task from the application server."""
         tasks_url = self.target + "api/v1/sat/tasks"
         try:
-            response = requests.post(tasks_url, data=json.dumps({"satid": self.config.get_satid()}), verify=self.no_ssl_verify, proxies=self.proxies, headers={"Content-Type": "application/json"}, allow_redirects=False)
-            if response.status_code == 200:
-                response_data = response.json()
+            headers = {"Content-Type": "application/json"}
+            payload = {"satid": self.config.get_satid()}
+            response = requests.post(
+                tasks_url,
+                data=json.dumps(payload),
+                headers=headers,
+                proxies=self.proxies,
+                verify=self.no_ssl_verify,
+                allow_redirects=False
+            )
 
-                # If empty queue, return
-                if response_data.get("message", "").lower() == "Test queue is empty".lower():
-                    return
-
-                return {"guid": response_data.get("data", dict()).get("guid"), "action": response_data.get("data", dict()).get("action"), "command": response_data.get("data", dict()).get("command")}
-
-            else:
+            # Return if status != 200
+            if response.status_code != 200:
                 if response.status_code == 401:
-                    print("[401 Unauthorized] Got not authorized response when receieving task from AS.")
+                    print("[401 Unauthorized] Received unauthorized response when retrieving task.")
                 else:
-                    print(f"Unexpected status code when retrieving tasks: {response.status_code}")
+                    print(f"[{response.status_code}] Unexpected response code while retrieving task.")
                 return
+
+            response_data = response.json()
+            if response_data.get("message", "").lower() == "test queue is empty": # If empty queue, return
+                return
+
+            task_data = response_data.get("data", {})
+
+            return {
+                "guid": task_data.get("guid"),
+                "action": task_data.get("action"),
+                "command": task_data.get("command")
+            }
+
         except Exception as e:
-            print("Error sending request to server to retrieve tasks", e)
+            print("Error sending request to server to retrieve tasks: {e}", e)
             return
-
-    def _delete_task_from_tasks(self, task) -> None:
-        with open(os.path.join(os.path.dirname(os.path.realpath(__file__)), self.project_id, "tasks.json"), "r+") as f:
-            original_json = json.loads(f.read())
-            modified_json = [i for i in original_json if i["guid"] != task["guid"]]
-            self.write_to_file_from_start(f, str(modified_json))
-
-
-    def write_to_file_from_start(self, open_file, data: any) -> None:
-        open_file.seek(0)
-        open_file.truncate(0)
-        open_file.write(data)
 
 
 def parse_args():
