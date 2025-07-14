@@ -36,8 +36,12 @@ class TaskStore:
 
     def ensure_file_exists(self):
         """
-        Create the task file with an empty list if it doesn't exist.
+        Ensure the directory and file exist. Create file with an empty list if needed.
         """
+        dir_path = os.path.dirname(self.file_path)
+        if dir_path:
+            os.makedirs(dir_path, exist_ok=True)
+
         if not os.path.exists(self.file_path):
             with open(self.file_path, "w") as f:
                 json.dump([], f)
