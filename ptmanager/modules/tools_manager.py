@@ -223,6 +223,10 @@ class ToolsManager:
             self._print_tools_table()
             return
 
+        if self._is_venv and not self._is_sudo:
+            ptprinthelper.ptprint(f"Please run script as sudo for those operations.")
+            sys.exit(1)
+
         tools_set = list(dict.fromkeys([tool.lower() for tool in tools2prepare]))
         if "all" in tools_set:
             tools_set = [tool["name"].lower() for tool in self.script_list]
@@ -325,6 +329,8 @@ class ToolsManager:
                     status_map[tool] = "Already installed"
                 elif tool.lower() in final_installed_versions:
                     status_map[tool] = "Installed: OK"
+                    # --- REGISTER TOOL IF SUCCESSFULLY INSTALLED ---
+                    self.register_tool(tool)
                 else:
                     status_map[tool] = "Install failed"
 
@@ -334,3 +340,24 @@ class ToolsManager:
         print(f"\033[{rows_count}A", end="")
         self._print_tools_table(tools=valid_tools, status_map=status_map)
         print()
+
+    def register_tool(self, tool_name: str) -> None:
+        """
+        Registers the specified tool using the system launcher registration script.
+
+        This method is used to create or update launchers (e.g. shell scripts, symlinks, or desktop entries)
+        for tools that have been installed in a virtual environment. It assumes the presence of the
+        external utility `/usr/local/bin/register-tools`, which handles the creation of appropriate launch points.
+
+        Args:
+            tool_name (str): The name of the tool to register.
+
+        Behavior:
+            - Only runs if in a virtual environment (self._is_venv).
+            - Silently ignores errors (non-blocking).
+        """
+        if self._is_venv:
+            try:
+                subprocess.run(["/usr/local/bin/register-tools", tool_name], check=True)
+            except Exception:
+                pass
