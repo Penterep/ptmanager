@@ -20,7 +20,7 @@ setuptools.setup(
         "License :: OSI Approved :: GNU General Public License v3 (GPLv3)"
     ],
     python_requires='>=3.9',
-    install_requires=["ptlibs>=1.0.9,<2"],
+    install_requires=["ptlibs>=1.0.39,<2"],
     entry_points={'console_scripts': ['ptmanager = ptmanager.ptmanager:main']},
     include_package_data=True,
     long_description=long_description,
