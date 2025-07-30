@@ -5,8 +5,11 @@ import sys; sys.path.extend([__file__.rsplit("/", 1)[0], os.path.join(__file__.r
 import requests
 import time
 import threading
+import itertools
 import json
-from ptlibs import ptjsonlib, ptprinthelper
+from ptlibs import ptjsonlib, ptprinthelper, ptmisclib
+from ptlibs.ptprinthelper import get_colored_text
+
 from concurrent.futures import ThreadPoolExecutor
 
 class ToolsManager:
@@ -16,226 +19,318 @@ class ToolsManager:
         self._stop_spinner = False
         self._is_sudo = os.geteuid() == 0
         self._is_venv = True if hasattr(sys, 'base_prefix') and sys.base_prefix != sys.prefix else False
+        self.script_list = self._get_script_list_from_api()
 
-    def _print_tools_table(self, tool_list_from_api, tools2update: list = None, tools2install: list = None, tools2delete: list = None) -> None:
-        print(f"{ptprinthelper.get_colored_text('Tool name', 'TITLE')}{' '*9}{ptprinthelper.get_colored_text('Installed', 'TITLE')}{' '*10}{ptprinthelper.get_colored_text('Latest', 'TITLE')}")
-        print(f"{'-'*20}{'-'*19}{'-'*19}{'-'*6}{'-'*7}")
+    def _print_tools_table(self, tools: list[str] = None, action: str = None, status_map: dict[str, str] = None) -> None:
+        """
+        Prints a table of available tools, showing installed and latest versions,
+        and optionally prints status messages per tool from status_map.
+
+        Args:
+            tools (list[str] | None): List of tool names to print. If None, prints all.
+            action (str | None): Action name for context (install/update/delete) - used for default status messages.
+            status_map (dict[str, str] | None): Optional dict mapping tool names to status messages to display instead of blank.
+        """
+        if tools is None:
+            tools = [tool["name"] for tool in self.script_list]
+
+        # Odstranění duplicit a sjednocení malých/velkých písmen
+        tools = list(dict.fromkeys([t.lower() for t in tools]))
+
+        installed_versions = self._get_installed_versions_map(tools)
+
+        print(f"{get_colored_text('Tool name', 'TITLE')}{' '*9}{get_colored_text('Installed', 'TITLE')}{' '*10}{get_colored_text('Latest', 'TITLE')}{' '*8}{get_colored_text('Status', 'TITLE') if status_map else ''}")
+
+        print(f"{'-'*20}{'-'*19}{'-'*19}{'-'*6}{'-'*(15 if status_map else 0)}")
 
         name_col_width = 20
         local_ver_col_width = 10
         remote_ver_col_width = 10
+        status_col_width = 15
 
-        for ptscript in tool_list_from_api:
-            is_installed, local_version = self.check_if_tool_is_installed(ptscript['name'])
-            remote_version = ptscript["version"]
-            #print(f"{ptscript['name']}{' '*(20-len(ptscript['name']))}{local_version}{' '*(19-len(local_version))}{remote_version}{' '*5}", end="" if tools2update or tools2install or tools2delete else "\n", flush=True)
-            print(f"{ptscript['name']:<{name_col_width}} {local_version:<{local_ver_col_width}}      {ptscript['version']:<{remote_ver_col_width}}", end="" if tools2update or tools2install or tools2delete else "\n", flush=True)
+        for tool_name in tools:
+            # Find version from script_list
+            remote_version = "-"
+            for tool in self.script_list:
+                if tool["name"].lower() == tool_name:
+                    remote_version = tool["version"]
+                    break
 
-            if tools2install:
-                if ptscript["name"] in tools2install:
-                    if not is_installed:
-                        print(self._install_update_delete_tools(tool_name=ptscript["name"], do_install=True))
-                        if self._is_venv:
-                            try:
-                                subprocess.run(["/usr/local/bin/register-tools", ptscript["name"]], check=True)
-                            except:
-                                pass
-                    else:
-                        print("Already installed")
-                else:
-                    # Uninstalled / Not installed
-                    print("")
+            is_installed, local_version = self.check_if_tool_is_installed(tool_name, installed_versions)
 
-            if tools2delete:
-                if ptscript["name"] in tools2delete:
-                    if is_installed:
-                        print(self._install_update_delete_tools(tool_name=ptscript["name"], do_delete=True))
-                    else:
-                        print("Not installed")
-                else:
-                    print("")
+            status = ""
+            if status_map and tool_name in status_map:
+                status = status_map[tool_name].strip()
+            elif action:
+                status = ""
 
-            if tools2update:
-                if ptscript["name"] in tools2update:
-                    if is_installed:
-                        local_version_tuple = tuple(map(int, local_version.split(".")))
-                        remote_version_tuple = tuple(map(int, remote_version.split(".")))
-                        if local_version_tuple < remote_version_tuple:
-                            print(self._install_update_delete_tools(tool_name=ptscript["name"], local_version=local_version, do_update=True))
-                        elif local_version == remote_version:
-                            print("Already latest version")
-                        else:
-                            print("Current version is > than the available version.")
-                    else:
-                        print("Install first before updating")
-                else:
-                    print(" ")
+            print(f"{tool_name:<{name_col_width}} {local_version:<{local_ver_col_width}}      {remote_version:<{remote_ver_col_width}}    {status:<{status_col_width}}")
 
-    def print_available_tools(self) -> None:
+    def _check_if_tool_exists(self, tool_name: str, script_list: list[dict]) -> bool:
+        return any(tool_name == script["name"] for script in script_list)
+
+    def check_if_tool_is_installed(self, tool_name: str, installed_versions: dict[str, str]) -> tuple[bool, str]:
+        """
+        Check if a tool is installed by looking it up in the installed_versions dictionary.
+
+        Args:
+            tool_name (str): The tool name to check.
+            installed_versions (dict[str, str]): Mapping of installed tool names (lowercase) to their versions.
+
+        Returns:
+            tuple[bool, str]: Tuple where first element is True if installed, False otherwise,
+                            and second element is the installed version or "-" if not installed.
+        """
+        tool_key = tool_name.lower()
+        if tool_key in installed_versions:
+            return True, installed_versions[tool_key]
+        else:
+            return False, "-"
+
+    def _get_installed_versions_map(self, tool_names: list[str]) -> dict[str, str]:
+        """
+        Returns a mapping of installed tool names to their version strings using `pip show`.
+
+        This method performs a single `pip show` call with multiple tool names to efficiently
+        determine which tools are currently installed in the environment and retrieve their versions.
+
+        Args:
+            tool_names (list[str]): List of tool names to check (as registered in PyPI / pip).
+
+        Returns:
+            dict[str, str]: Dictionary where keys are lowercase tool names and values are
+                            their installed version strings. Tools not found will be omitted.
+        """
+        if not tool_names:
+            return {}
+
         try:
-            self._print_tools_table(self._get_script_list_from_api())
-        except KeyboardInterrupt:
-            self._stop_spinner = True
-            sys.stdout.write("\033[?25h")  # Ensure cursor is shown
-            sys.stdout.flush()
-            print("\nProcess interrupted by user.")
-            sys.exit(1)
+            result = subprocess.run(
+                ["pip", "show", *tool_names],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.DEVNULL,
+                text=True,
+                check=False
+            )
+        except Exception:
+            return {}
+
+        installed_versions = {}
+        current_name = None
+
+        for line in result.stdout.splitlines():
+            if line.startswith("Name:"):
+                current_name = line.split(":", 1)[1].strip().lower()
+            elif line.startswith("Version:") and current_name:
+                version = line.split(":", 1)[1].strip()
+                installed_versions[current_name] = version
+                current_name = None  # reset for next block
+
+        return installed_versions
 
     def _get_script_list_from_api(self) -> list:
-        """Retrieve available tools from API"""
-        spinner_thread = threading.Thread(target=self._spinner, daemon=True)
-        spinner_thread.start()  # Retrieving tools spinner...
+        """
+        Retrieve available tools from remote API and fetch their current versions from PyPI.
+
+        Displays a spinner while fetching data.
+
+        Returns:
+            list of dict: List of tools with their names and versions, sorted alphabetically.
+
+        Raises:
+            Calls self.ptjsonlib.end_error() internally on errors during retrieval.
+        """
+        stop_event = threading.Event()
+
+        def spinner_func():
+            """Display animated spinner in terminal while data is being fetched."""
+            spinner = itertools.cycle(["|", "/", "-", "\\"])
+            spinner_dots = itertools.cycle(["."] * 2 + [".."] * 4 + ["..."] * 6)
+            sys.stdout.write("\033[?25l")  # Hide cursor
+            sys.stdout.flush()
+            try:
+                while not stop_event.is_set():
+                    symbol = next(spinner)
+                    dots = next(spinner_dots)
+                    text = f"[{get_colored_text(symbol, 'TITLE')}] Retrieving tools {dots}"
+                    sys.stdout.write("\r" + text + " " * 10)  # clear to eol approx
+                    sys.stdout.flush()
+                    time.sleep(0.1)
+            finally:
+                sys.stdout.write("\r" + " " * 40 + "\r")  # Clear line
+                sys.stdout.write("\033[?25h")  # Show cursor
+                sys.stdout.flush()
+
+        def fetch_tool_info(tool):
+            """
+            Fetch version info for a given PyPI package.
+
+            Args:
+                tool (str): Name of the tool/package.
+
+            Returns:
+                dict | None: Dictionary with name and version, or None if fetch fails.
+            """
+            try:
+                response = requests.get(f'https://pypi.org/pypi/{tool}/json')
+                if response.status_code == 200:
+                    data = response.json()
+                    return {"name": tool, "version": data["info"]["version"]}
+            except:
+                return None
+
+        spinner_thread = threading.Thread(target=spinner_func, daemon=True)
+        spinner_thread.start()
 
         try:
             url = "https://raw.githubusercontent.com/Penterep/ptmanager/main/ptmanager/available_tools.txt"
             available_tools = requests.get(url).text.split("\n")
             tools = sorted(set(tool.strip() for tool in available_tools if tool.strip() and not tool.startswith("#")))
 
-            def fetch_tool_info(tool):
-                try:
-                    response = requests.get(f'https://pypi.org/pypi/{tool}/json')
-                    if response.status_code == 200:
-                        data = response.json()
-                        return {"name": tool, "version": data["info"]["version"]}
-                except:
-                    return None
-
-            script_list = []
             with ThreadPoolExecutor(max_workers=10) as executor:
-                results = executor.map(fetch_tool_info, tools)
-                script_list = [res for res in results if res]
+                script_list = [res for res in executor.map(fetch_tool_info, tools) if res]
 
         except Exception as e:
-            self._stop_spinner = True
+            stop_event.set()
             spinner_thread.join()
-            sys.stdout.write("\r" + " " * 40 + "\r")
             sys.stdout.flush()
-            self.ptjsonlib.end_error(f"Error retrieving tools from API ({e})", self.use_json)
+            self.ptjsonlib.end_error(f"Error retrieving tools from API:", details="Cannot retrieve response from target server.", condition=False)
 
-        finally:
-            sys.stdout.write("\033[?25h")
-            sys.stdout.flush()
-
-        self._stop_spinner = True
+        stop_event.set()
         spinner_thread.join()
-        sys.stdout.write("\r" + " " * 40 + "\r")
-        return sorted(script_list, key=lambda x: x['name'])
+
+        return sorted(script_list, key=lambda x: (x['name'] in ('ptlibs', 'ptmanager'), x['name']))
 
 
-    def check_if_tool_is_installed(self, tool_name) -> tuple[bool, str]:
-        try:
-            p = subprocess.run([tool_name, "-v"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    def prepare_install_update_delete_tools(self, tools2prepare: list[str], action: str | None = None) -> None:
+        """
+        Prepares and executes install, update, or delete actions on specified tools.
 
-            if re.compile(r'^\w*\s\d{1,3}\.\d{1,3}\.\d{1,3}$').match(p.stdout.strip()):
-                script_name, version = p.stdout.strip().split()
-                is_installed = True
-                local_version = version
+        Args:
+            tools2prepare (list[str]): List of tool names or ['all'].
+            action (str | None): One of 'install', 'update', 'delete'. Determines the pip action to perform.
+
+        Behavior:
+            - Verifies existence of specified tools.
+            - Prints current status and intended action.
+            - Executes pip commands.
+            - Updates the displayed tool table with results (success/failure/status).
+            - Handles special cases like protected tools (ptlibs, ptmanager).
+            - Skips redundant actions (e.g. already installed/deleted/up-to-date).
+        """
+        if not tools2prepare:
+            print("No tools specified.")
+            self._print_tools_table()
+            return
+
+        tools_set = list(dict.fromkeys([tool.lower() for tool in tools2prepare]))
+        if "all" in tools_set:
+            tools_set = [tool["name"].lower() for tool in self.script_list]
+
+        valid_tools = [t for t in tools_set if self._check_if_tool_exists(t, self.script_list)]
+        invalid_tools = [t for t in tools_set if not self._check_if_tool_exists(t, self.script_list)]
+
+        if invalid_tools:
+            print()
+            self.ptjsonlib.end_error(f"Unrecognized Tool(s): [{', '.join(invalid_tools)}]", self.use_json)
+            if not valid_tools:
+                self._print_tools_table()
+                return
+
+        _action = {"install": "Installing", "update": "Updating", "delete": "Removing"}.get(action, action.capitalize() if action else "Working")
+        status_map = {tool: f"{_action}..." for tool in valid_tools}
+        self._print_tools_table(tools=valid_tools, status_map=status_map)
+
+        rows_count = len(valid_tools) + 2
+
+        installed_versions = self._get_installed_versions_map(valid_tools)
+
+        pip_args = [sys.executable, "-m", "pip"]
+
+        if action == "install":
+            pip_args += ["install"] + valid_tools
+
+        elif action == "update":
+            # Separate tools into installed and not installed
+            tools_installed = [t for t in valid_tools if t.lower() in installed_versions]
+            tools_not_installed = [t for t in valid_tools if t.lower() not in installed_versions]
+
+            # Mark not installed tools in status_map
+            NOT_INSTALLED_MSG = "Not installed — please install first"
+            for t in tools_not_installed:
+                status_map[t] = NOT_INSTALLED_MSG
+
+            if not tools_installed:
+                # Nothing to update, print and return
+                print(f"\033[{rows_count}A", end="")
+                self._print_tools_table(tools=valid_tools, status_map=status_map)
+                print()
+                return
+
+            # Update only installed tools
+            pip_args += ["install", "--upgrade"] + tools_installed
+
+        elif action == "delete":
+            # Filter only installed and non-protected tools
+            filtered_tools = [
+                t for t in valid_tools
+                if t not in ("ptlibs", "ptmanager") and t.lower() in installed_versions
+            ]
+
+            if not filtered_tools:
+                status_map = {
+                    t: (
+                        "Cannot be deleted from ptmanager" if t in ("ptlibs", "ptmanager")
+                        else "Already uninstalled"
+                    )
+                    for t in valid_tools
+                }
+                print(f"\033[{rows_count}A", end="")
+                self._print_tools_table(tools=valid_tools, status_map=status_map)
+                print()
+                return
+
+            pip_args += ["uninstall", "-y"] + filtered_tools
+
+        result = subprocess.run(pip_args, capture_output=True, text=True)
+
+        ### Refresh installed_versions only AFTER running pip
+        final_installed_versions = self._get_installed_versions_map(valid_tools)
+
+        for tool in valid_tools:
+            if action == "delete":
+                if tool in ("ptlibs", "ptmanager"):
+                    status_map[tool] = "Cannot be deleted from ptmanager"
+                elif tool.lower() in installed_versions and tool.lower() not in final_installed_versions:
+                    status_map[tool] = "Uninstall: OK"
+                elif tool.lower() not in installed_versions:
+                    status_map[tool] = "Already uninstalled"
+                else:
+                    status_map[tool] = "Uninstall failed"
+
+            elif action == "update":
+                if tool.lower() in status_map and status_map[tool] == NOT_INSTALLED_MSG:
+                    # Status already set for not installed tools, skip
+                    continue
+                elif tool.lower() in installed_versions and tool.lower() in final_installed_versions:
+                    status_map[tool] = "Already up-to-date"
+                elif tool.lower() not in final_installed_versions:
+                    status_map[tool] = "Update failed"
+                else:
+                    # Case where the tool was installed as a new package during update or update failed
+                    status_map[tool] = "Update failed or installed as new"
+
+            elif action == "install":
+                if tool.lower() in installed_versions and tool.lower() in final_installed_versions:
+                    status_map[tool] = "Already installed"
+                elif tool.lower() in final_installed_versions:
+                    status_map[tool] = "Installed: OK"
+                else:
+                    status_map[tool] = "Install failed"
+
             else:
-                is_installed = False
-                local_version = "-"
-        except FileNotFoundError:
-            local_version = "-"
-            is_installed = False
-        except IndexError:
-            local_version = "-"
-            is_installed = False
-        return is_installed, local_version
+                status_map[tool] = f"{action.capitalize()} failed"
 
-
-    def _install_update_delete_tools(self, tool_name:str, do_install=False, do_update=False, do_delete=False, local_version=None) -> str:
-        assert do_update or do_install or do_delete
-
-        if do_install:
-            process_args = ["pip", "install", tool_name]
-
-        if do_update:
-            process_args = ["pip", "install", tool_name, "--upgrade"]
-
-        if do_delete:
-            if tool_name in ["ptlibs", "ptmanager"]:
-                return "Cannot be deleted from ptmanager"
-            process_args = ["pip", "uninstall", tool_name, "-y"]
-
-        try:
-            process = subprocess.run(process_args, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, check=True) # install/update/delete
-        except Exception as e:
-            return f"error"
-
-        if do_delete:
-            try:
-                process = subprocess.run([tool_name, "-v"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True) # check new version
-                if "not installed" in process.stdout.lower():
-                    return "Uninstall: OK"
-            except FileNotFoundError as e:
-                return f"Uninstall: OK"
-            except:
-                return f"Uninstall: {e}"
-        else:
-            try:
-                process = subprocess.run([tool_name, "-v"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True) # check new version
-                new_version = process.stdout.split()[1]
-            except Exception as e:
-                return f"error"
-            if do_update:
-                return f"{local_version} -> {new_version} Updated: OK"
-            else:
-                return f"Installed: OK"
-
-
-    def prepare_install_update_delete_tools(self, tools2prepare: list, do_update: bool=None, do_install: bool=None, do_delete: bool = None) -> None:
-        """Prepare provided tools for installation or update or deletion"""
-
-        if self._is_venv and not self._is_sudo:
-            ptprinthelper.ptprint(f"Please run script as sudo for those operations.")
-            sys.exit(1)
-
-        tools2prepare = set([tool.lower() for unparsed_tool in tools2prepare for tool in unparsed_tool.split(",") if tool])
-
-        try:
-            #self._print_tools_table(self._get_script_list_from_api())
-            script_list = self._get_script_list_from_api()
-        except KeyboardInterrupt:
-            self._stop_spinner = True
-            sys.stdout.write("\033[?25h")
-            sys.stdout.flush()
-            print("\nProcess interrupted by user.")
-            sys.exit(1)
-
-        if "all" in tools2prepare:
-            tools2prepare = [tool["name"] for tool in script_list]
-
-        valid_tool_names = [tool for tool in tools2prepare if self._check_if_tool_exists(tool, script_list)]
-        invalid_tool_names = [tool for tool in tools2prepare if not self._check_if_tool_exists(tool, script_list)] if len(valid_tool_names) < len(tools2prepare) else []
-
-        if valid_tool_names:
-            if do_install:
-                self._print_tools_table(script_list, tools2install=valid_tool_names)
-            if do_update:
-                self._print_tools_table(script_list, tools2update=valid_tool_names)
-            if do_delete:
-                self._print_tools_table(script_list, tools2delete=valid_tool_names)
-
-        if invalid_tool_names:
-            if not valid_tool_names:
-                self._print_tools_table(script_list)
-            print(" ")
-            self.ptjsonlib.end_error(f"Unrecognized Tool(s): [{', '.join(invalid_tool_names)}]", self.use_json)
-
-
-    def _check_if_tool_exists(self, tool_name: str, script_list) -> bool:
-        """Checks if tool_name is present in script_list"""
-        if tool_name in [script["name"] for script in script_list]:
-            return True
-
-
-    def _spinner(self):
-        sys.stdout.write("\033[?25l")  # Hide cursor
-        sys.stdout.flush()
-        while not self._stop_spinner:
-            for symbol in '|/-\\':
-                sys.stdout.write(f'\r[{ptprinthelper.get_colored_text(string=symbol, color="TITLE")}] Retrieving tools ...')  # \r přepíše řádek
-                sys.stdout.flush()
-                time.sleep(0.1)
-        # Show cursor again when spinner stops
-        sys.stdout.write("\033[?25h")
-        sys.stdout.flush()
+        print(f"\033[{rows_count}A", end="")
+        self._print_tools_table(tools=valid_tools, status_map=status_map)
+        print()
