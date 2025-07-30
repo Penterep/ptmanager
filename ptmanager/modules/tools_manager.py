@@ -18,7 +18,7 @@ class ToolsManager:
         self.use_json = use_json
         self._stop_spinner = False
         self._is_sudo = os.geteuid() == 0
-        self._is_venv = True if hasattr(sys, 'base_prefix') and sys.base_prefix != sys.prefix else False
+        self._is_penterep_venv = self.is_penterep_venv("/opt/penterep-tools/penterep-tools")
         self.script_list = self._get_script_list_from_api()
 
     def _print_tools_table(self, tools: list[str] = None, action: str = None, status_map: dict[str, str] = None) -> None:
@@ -223,7 +223,7 @@ class ToolsManager:
             self._print_tools_table()
             return
 
-        if self._is_venv and not self._is_sudo:
+        if self._is_penterep_venv and not self._is_sudo:
             ptprinthelper.ptprint(f"Please run script as sudo for those operations.")
             sys.exit(1)
 
@@ -353,11 +353,25 @@ class ToolsManager:
             tool_name (str): The name of the tool to register.
 
         Behavior:
-            - Only runs if in a virtual environment (self._is_venv).
+            - Only runs if in a penterep virtual environment (self._is_penterep_venv).
             - Silently ignores errors (non-blocking).
         """
-        if self._is_venv:
+        if self._is_penterep_venv:
             try:
                 subprocess.run(["/usr/local/bin/register-tools", tool_name], check=True)
             except Exception:
                 pass
+
+    def is_penterep_venv(self, expected_path: str) -> bool:
+        """
+        Returns True if the current Python interpreter is running inside the expected (penterep) virtual environment.
+
+        Args:
+            expected_path (str): Absolute path to the venv directory to check against.
+
+        Returns:
+            bool: True if current venv matches the expected path.
+        """
+        current_venv = os.path.realpath(sys.prefix)
+        expected_venv = os.path.realpath(expected_path)
+        return current_venv == expected_venv
