@@ -1,19 +1,19 @@
 #!/usr/bin/python3
 """
-    Copyright (c) 2024 Penterep Security s.r.o.
+Copyright (c) 2025 Penterep Security s.r.o.
 
-    ptmanager is free software: you can redistribute it and/or modify
-    it under the terms of the GNU General Public License as published by
-    the Free Software Foundation, either version 3 of the License, or
-    (at your option) any later version.
+ptmanager is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
 
-    ptmanager is distributed in the hope that it will be useful,
-    but WITHOUT ANY WARRANTY; without even the implied warranty of
-    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-    GNU General Public License for more details.
+ptmanager is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
 
-    You should have received a copy of the GNU General Public License
-    along with ptmanager.  If not, see <https://www.gnu.org/licenses/>.
+You should have received a copy of the GNU General Public License
+along with ptmanager.  If not, see <https://www.gnu.org/licenses/>.
 """
 
 import argparse
@@ -25,6 +25,7 @@ from _version import __version__
 from modules.config import Config
 from modules.project_manager import ProjectManager
 from modules.tools_manager import ToolsManager
+from modules.utils import temp_manager
 
 import requests
 from ptlibs import ptprinthelper, ptjsonlib
@@ -43,6 +44,9 @@ class PtManager:
 
     def run(self, args: argparse.Namespace) -> None:
         """Main method"""
+
+        if args.temp_clean:
+            temp_manager()
 
         if args.init or not self.config.get_satid():
             self._get_project_manager().register_uid()
@@ -66,16 +70,16 @@ class PtManager:
             self._get_project_manager().list_projects()
 
         elif args.tools_list:
-            self._get_tools_manager().print_available_tools()
+            self._get_tools_manager()._print_tools_table()
 
         elif args.tools_install:
-            self._get_tools_manager().prepare_install_update_delete_tools(args.tools_install, do_install=True)
+            self._get_tools_manager().prepare_install_update_delete_tools(args.tools_install, action="install")
 
         elif args.tools_update:
-            self._get_tools_manager().prepare_install_update_delete_tools(args.tools_update, do_update=True)
+            self._get_tools_manager().prepare_install_update_delete_tools(args.tools_update, action="update")
 
         elif args.tools_delete:
-            self._get_tools_manager().prepare_install_update_delete_tools(args.tools_delete, do_delete=True)
+            self._get_tools_manager().prepare_install_update_delete_tools(args.tools_delete, action="delete")
 
         else:
             self.ptjsonlib.end_error("Bad argument combination", self.use_json)
@@ -129,6 +133,7 @@ def get_help() -> list[dict[str,any]]:
             ["-t",   "--threads",                "<threads>",        "Set number of threads"],
             ["-p",   "--proxy",                  "",                 "Set proxy"],
             ["-nv",  "--no-ssl-verify",          "",                 "Do not verify SSL connections"],
+            ["-tc",  "--temp-clean",              "",                "Clean penterep temp folder and exit"],
             ["-v",   "--version",                "",                 "Show script version and exit"],
             ["-h",   "--help",                   "",                 "Show this help message and exit"],
             ]
@@ -168,6 +173,7 @@ def parse_args():
     parser.add_argument("--socket-address",          type=str, default=None)
     parser.add_argument("--port",                    type=str, default=None)
     parser.add_argument("--process-ident",           type=str, default=None)
+    parser.add_argument("-tc", "--temp-clean",       action="store_true")
     parser.add_argument("--debug",                   action="store_true")
 
 
