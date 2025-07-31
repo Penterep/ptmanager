@@ -26,6 +26,8 @@ from modules.config import Config
 from modules.project_manager import ProjectManager
 from modules.tools_manager import ToolsManager
 from modules.utils import temp_manager
+from modules.utils import InputBlocker
+
 
 import requests
 from ptlibs import ptprinthelper, ptjsonlib
@@ -72,19 +74,34 @@ class PtManager:
         elif args.tools_list:
             self._get_tools_manager()._print_tools_table()
 
-        elif args.tools_install:
-            self._get_tools_manager().prepare_install_update_delete_tools(args.tools_install, action="install")
-
-        elif args.tools_update:
-            self._get_tools_manager().prepare_install_update_delete_tools(args.tools_update, action="update")
-
-        elif args.tools_delete:
-            self._get_tools_manager().prepare_install_update_delete_tools(args.tools_delete, action="delete")
+        elif args.tools_install or args.tools_update or args.tools_delete:
+            self._handle_tool_action(args)
 
         else:
             self.ptjsonlib.end_error("Bad argument combination", self.use_json)
 
         self.config.save()
+
+    def _handle_tool_action(self, args) -> None:
+        """
+        Handles install, update, or delete actions for tools based on CLI arguments.
+
+        Applies input blocking during execution to prevent terminal interference.
+        Only the first matching action (in install → update → delete order) is executed.
+
+        Args:
+            args: Parsed command-line arguments namespace.
+        """
+        for action, tools in (
+            ("install", args.tools_install),
+            ("update", args.tools_update),
+            ("delete", args.tools_delete),
+        ):
+            if tools:
+                with InputBlocker() as blocker:
+                    blocker.flush_input()
+                    self._get_tools_manager().prepare_install_update_delete_tools(tools, action=action)
+                break
 
     def _get_project_manager(self) -> ProjectManager:
         return ProjectManager(ptjsonlib=self.ptjsonlib, use_json=self.use_json, proxies=self.proxies, no_ssl_verify=self.no_ssl_verify, config=self.config, debug=self.debug)
