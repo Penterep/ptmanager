@@ -7,6 +7,7 @@ import time
 import threading
 import itertools
 import json
+
 from ptlibs import ptjsonlib, ptprinthelper, ptmisclib
 from ptlibs.ptprinthelper import get_colored_text
 
@@ -20,6 +21,7 @@ class ToolsManager:
         self._is_sudo = os.geteuid() == 0
         self._is_penterep_venv = self.is_penterep_venv("/opt/penterep-tools/penterep-tools")
         self.script_list = self._get_script_list_from_api()
+        self._installed_versions_cache = {}
 
     def _print_tools_table(self, tools: list[str] = None, action: str = None, status_map: dict[str, str] = None) -> None:
         """
@@ -52,7 +54,7 @@ class ToolsManager:
             # Find version from script_list
             remote_version = "-"
             for tool in self.script_list:
-                if tool["name"].lower() == tool_name:
+                if tool["name"] == tool_name:
                     remote_version = tool["version"]
                     break
 
@@ -67,7 +69,8 @@ class ToolsManager:
             print(f"{tool_name:<{name_col_width}} {local_version:<{local_ver_col_width}}      {remote_version:<{remote_ver_col_width}}    {status:<{status_col_width}}")
 
     def _check_if_tool_exists(self, tool_name: str, script_list: list[dict]) -> bool:
-        return any(tool_name == script["name"] for script in script_list)
+        return any(tool_name == script["name"].lower() for script in script_list)
+
 
     def check_if_tool_is_installed(self, tool_name: str, installed_versions: dict[str, str]) -> tuple[bool, str]:
         """
@@ -81,7 +84,7 @@ class ToolsManager:
             tuple[bool, str]: Tuple where first element is True if installed, False otherwise,
                             and second element is the installed version or "-" if not installed.
         """
-        tool_key = tool_name.lower()
+        tool_key = tool_name
         if tool_key in installed_versions:
             return True, installed_versions[tool_key]
         else:
@@ -185,7 +188,7 @@ class ToolsManager:
         try:
             url = "https://raw.githubusercontent.com/Penterep/ptmanager/main/ptmanager/available_tools.txt"
             available_tools = requests.get(url).text.split("\n")
-            tools = sorted(set(tool.strip() for tool in available_tools if tool.strip() and not tool.startswith("#")))
+            tools = sorted(set(tool.strip().lower() for tool in available_tools if tool.strip() and not tool.startswith("#")))
 
             with ThreadPoolExecutor(max_workers=10) as executor:
                 script_list = [res for res in executor.map(fetch_tool_info, tools) if res]
@@ -224,12 +227,11 @@ class ToolsManager:
             return
 
         if self._is_penterep_venv and not self._is_sudo:
-            ptprinthelper.ptprint(f"Please run script as sudo for those operations.")
-            sys.exit(1)
+            self.ptjsonlib.end_error(f"Please run script as sudo for those operations.", self.use_json)
 
         tools_set = list(dict.fromkeys([tool.lower() for tool in tools2prepare]))
         if "all" in tools_set:
-            tools_set = [tool["name"].lower() for tool in self.script_list]
+            tools_set = [tool["name"] for tool in self.script_list]
 
         valid_tools = [t for t in tools_set if self._check_if_tool_exists(t, self.script_list)]
         invalid_tools = [t for t in tools_set if not self._check_if_tool_exists(t, self.script_list)]
@@ -237,109 +239,184 @@ class ToolsManager:
         if invalid_tools:
             print()
             self.ptjsonlib.end_error(f"Unrecognized Tool(s): [{', '.join(invalid_tools)}]", self.use_json)
-            if not valid_tools:
-                self._print_tools_table()
-                return
-
-        _action = {"install": "Installing", "update": "Updating", "delete": "Removing"}.get(action, action.capitalize() if action else "Working")
-        status_map = {tool: f"{_action}..." for tool in valid_tools}
-        self._print_tools_table(tools=valid_tools, status_map=status_map)
-
-        rows_count = len(valid_tools) + 2
-
-        installed_versions = self._get_installed_versions_map(valid_tools)
-
-        pip_args = [sys.executable, "-m", "pip"]
 
         if action == "install":
-            pip_args += ["install"] + valid_tools
-
+            self._install_tools(valid_tools)
         elif action == "update":
-            # Separate tools into installed and not installed
-            tools_installed = [t for t in valid_tools if t.lower() in installed_versions]
-            tools_not_installed = [t for t in valid_tools if t.lower() not in installed_versions]
-
-            # Mark not installed tools in status_map
-            NOT_INSTALLED_MSG = "Not installed — please install first"
-            for t in tools_not_installed:
-                status_map[t] = NOT_INSTALLED_MSG
-
-            if not tools_installed:
-                # Nothing to update, print and return
-                print(f"\033[{rows_count}A", end="")
-                self._print_tools_table(tools=valid_tools, status_map=status_map)
-                print()
-                return
-
-            # Update only installed tools
-            pip_args += ["install", "--upgrade"] + tools_installed
-
+            self._update_tools(valid_tools)
         elif action == "delete":
-            # Filter only installed and non-protected tools
-            filtered_tools = [
-                t for t in valid_tools
-                if t not in ("ptlibs", "ptmanager") and t.lower() in installed_versions
-            ]
+            self._delete_tools(valid_tools)
+        else:
+            self.ptjsonlib.end_error(f"Unknown action '{action}' specified.", self.use_json)
 
-            if not filtered_tools:
-                status_map = {
-                    t: (
-                        "Cannot be deleted from ptmanager" if t in ("ptlibs", "ptmanager")
-                        else "Already uninstalled"
-                    )
-                    for t in valid_tools
-                }
-                print(f"\033[{rows_count}A", end="")
-                self._print_tools_table(tools=valid_tools, status_map=status_map)
-                print()
-                return
+    def _install_tools(self, valid_tools: list[str]) -> None:
+        """
+        Installs the specified tools using pip, updates and prints the status table.
 
-            pip_args += ["uninstall", "-y"] + filtered_tools
+        Args:
+            valid_tools (list[str]): List of tool names to install.
 
+        Behavior:
+            - Checks which tools are already installed.
+            - Prints status showing which tools are already installed and which are being installed.
+            - Runs pip install on tools not yet installed.
+            - Updates the status map with results (success/failure).
+            - Registers successfully installed tools.
+            - Refreshes and prints the updated tools status table.
+        """
+        rows_count = len(self.script_list) + 2
+        installed_versions = self._get_installed_versions_map(valid_tools)
+
+        tools_installed = [t for t in valid_tools if t in installed_versions]
+        tools_not_installed = [t for t in valid_tools if t not in installed_versions]
+
+        status_map = {}
+        for tool in valid_tools:
+            if tool in tools_installed:
+                status_map[tool] = "Already installed"
+            else:
+                status_map[tool] = "Installing..."
+
+        self._print_tools_table(tools=[tool["name"] for tool in self.script_list], status_map=status_map)
+
+        if not tools_not_installed:
+            return
+
+        pip_args = [sys.executable, "-m", "pip", "install"] + tools_not_installed
         result = subprocess.run(pip_args, capture_output=True, text=True)
 
-        ### Refresh installed_versions only AFTER running pip
         final_installed_versions = self._get_installed_versions_map(valid_tools)
 
         for tool in valid_tools:
-            if action == "delete":
-                if tool in ("ptlibs", "ptmanager"):
-                    status_map[tool] = "Cannot be deleted from ptmanager"
-                elif tool.lower() in installed_versions and tool.lower() not in final_installed_versions:
-                    status_map[tool] = "Uninstall: OK"
-                elif tool.lower() not in installed_versions:
-                    status_map[tool] = "Already uninstalled"
-                else:
-                    status_map[tool] = "Uninstall failed"
-
-            elif action == "update":
-                if tool.lower() in status_map and status_map[tool] == NOT_INSTALLED_MSG:
-                    # Status already set for not installed tools, skip
-                    continue
-                elif tool.lower() in installed_versions and tool.lower() in final_installed_versions:
-                    status_map[tool] = "Already up-to-date"
-                elif tool.lower() not in final_installed_versions:
-                    status_map[tool] = "Update failed"
-                else:
-                    # Case where the tool was installed as a new package during update or update failed
-                    status_map[tool] = "Update failed or installed as new"
-
-            elif action == "install":
-                if tool.lower() in installed_versions and tool.lower() in final_installed_versions:
-                    status_map[tool] = "Already installed"
-                elif tool.lower() in final_installed_versions:
-                    status_map[tool] = "Installed: OK"
-                    # --- REGISTER TOOL IF SUCCESSFULLY INSTALLED ---
-                    self.register_tool(tool)
-                else:
-                    status_map[tool] = "Install failed"
-
+            if tool in installed_versions and tool in final_installed_versions:
+                status_map[tool] = "Already installed"
+            elif tool in final_installed_versions:
+                status_map[tool] = "Installed: OK"
+                self.register_tool(tool)
             else:
-                status_map[tool] = f"{action.capitalize()} failed"
+                status_map[tool] = "Install failed"
 
         print(f"\033[{rows_count}A", end="")
-        self._print_tools_table(tools=valid_tools, status_map=status_map)
+        self._print_tools_table(tools=[tool["name"] for tool in self.script_list], status_map=status_map)
         print()
+
+
+    def _update_tools(self, valid_tools: list[str]) -> None:
+        """
+        Updates the specified installed tools using pip, and prints status updates.
+
+        Args:
+            valid_tools (list[str]): List of tool names to update.
+
+        Behavior:
+            - Checks installed and not installed tools.
+            - Compares installed versions to latest versions.
+            - Only runs upgrade on tools that are out-of-date.
+            - Updates and displays status accordingly.
+        """
+        rows_count = len(self.script_list) + 2
+        installed_versions = self._get_installed_versions_map(valid_tools)
+        latest_versions = {tool["name"]: tool.get("version", "") for tool in self.script_list}
+
+        status_map = {}
+        tools_to_update = []
+        tools_not_installed = []
+
+        # Classify tools by installed/not installed and version status
+        for tool in valid_tools:
+            latest_version = latest_versions.get(tool, "")
+            installed_version = installed_versions.get(tool)
+
+            if installed_version is None:
+                status_map[tool] = "Not installed — please install first"
+                tools_not_installed.append(tool)
+            elif installed_version == latest_version:
+                status_map[tool] = "Already up-to-date"
+            else:
+                status_map[tool] = "Updating..."
+                tools_to_update.append(tool)
+
+        self._print_tools_table(tools=[tool["name"] for tool in self.script_list], status_map=status_map)
+
+        if not tools_to_update:
+            return  # No tools need updating
+
+        # Run pip upgrade only on tools that need it
+        pip_args = [sys.executable, "-m", "pip", "install", "--upgrade"] + tools_to_update
+        subprocess.run(pip_args, capture_output=True, text=True)
+
+        # Refresh installed versions after upgrade
+        final_installed_versions = self._get_installed_versions_map(valid_tools)
+
+        # Update status based on whether upgrade succeeded
+        for tool in tools_to_update:
+            final_version = final_installed_versions.get(tool, "")
+            latest_version = latest_versions.get(tool, "")
+            if final_version == latest_version:
+                status_map[tool] = "Updated successfully"
+            else:
+                status_map[tool] = "Update failed or partial"
+
+        self._print_tools_table(tools=[tool["name"] for tool in self.script_list], status_map=status_map)
+        print()
+
+    def _delete_tools(self, valid_tools: list[str]) -> None:
+        """
+        Uninstalls specified tools (except protected ones) using pip, updating status accordingly.
+
+        Args:
+            valid_tools (list[str]): List of tool names to uninstall.
+
+        Behavior:
+            - Filters out protected tools (ptlibs, ptmanager) and tools not installed.
+            - Prints initial status showing which tools are removable or protected.
+            - Runs pip uninstall -y on filtered tools.
+            - Updates the status map with results (success/failure).
+            - Refreshes and prints the updated tools status table.
+        """
+        rows_count = len(self.script_list) + 2
+        installed_versions = self._get_installed_versions_map(valid_tools)
+
+        filtered_tools = [
+            t for t in valid_tools
+            if t not in ("ptlibs", "ptmanager") and t in installed_versions
+        ]
+
+        status_map = {}
+        for tool in valid_tools:
+            if tool in ("ptlibs", "ptmanager"):
+                status_map[tool] = "Cannot be deleted from ptmanager"
+            elif tool not in installed_versions:
+                status_map[tool] = "Already uninstalled"
+            elif tool in filtered_tools:
+                status_map[tool] = "Removing..."
+            else:
+                status_map[tool] = "Cannot be deleted or already uninstalled"
+
+        self._print_tools_table(tools=[tool["name"] for tool in self.script_list], status_map=status_map)
+
+        if not filtered_tools:
+            return
+
+        pip_args = [sys.executable, "-m", "pip", "uninstall", "-y"] + filtered_tools
+        result = subprocess.run(pip_args, capture_output=True, text=True)
+
+        final_installed_versions = self._get_installed_versions_map(valid_tools)
+
+        for tool in valid_tools:
+            if tool in ("ptlibs", "ptmanager"):
+                status_map[tool] = "Cannot be deleted from ptmanager"
+            elif tool in installed_versions and tool not in final_installed_versions:
+                status_map[tool] = "Uninstall: OK"
+            elif tool not in installed_versions:
+                status_map[tool] = "Already uninstalled"
+            else:
+                status_map[tool] = "Uninstall failed"
+
+        print(f"\033[{rows_count}A", end="")
+        self._print_tools_table(tools=[tool["name"] for tool in self.script_list], status_map=status_map)
+        print()
+
 
     def register_tool(self, tool_name: str) -> None:
         """
