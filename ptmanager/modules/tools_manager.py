@@ -36,7 +36,7 @@ class ToolsManager:
         if tools is None:
             tools = [tool["name"] for tool in self.script_list]
 
-        # Odstranění duplicit a sjednocení malých/velkých písmen
+        # Remove duplicates and normalize case (lowercase)
         tools = list(dict.fromkeys([t.lower() for t in tools]))
 
         installed_versions = self._get_installed_versions_map(tools)
@@ -357,6 +357,7 @@ class ToolsManager:
             else:
                 status_map[tool] = "Update failed or partial"
 
+        print(f"\033[{rows_count}A", end="")
         self._print_tools_table(tools=[tool["name"] for tool in self.script_list], status_map=status_map)
         print()
 
