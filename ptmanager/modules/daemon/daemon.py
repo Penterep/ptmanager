@@ -129,6 +129,8 @@ class Daemon:
     def send_to_api(self, end_point, data) -> requests.Response:
         """Send data to the API."""
         target = self.target + "api/v1/sat/" + end_point
+        print("not json dump data:", data)
+        print("sending result data:", json.dumps(data))
         response = requests.post(target, data=json.dumps(data), verify=self.no_ssl_verify, headers={"Content-Type": "application/json"}, proxies=self.proxies, allow_redirects=False)
 
         if response.status_code != 200:
@@ -283,7 +285,7 @@ class Daemon:
             "pid": process.pid,
             "timeStamp": time.time(),
             "status": "running",
-            "results": None
+            "results": {}
         }
 
         self.task_store.append_task(running_task)
@@ -305,7 +307,7 @@ class Daemon:
         running_task.update({
             "pid": None,
             "status": parsed_result.get("status", "error"),
-            "results": json.dumps(parsed_result.get("results", {})),
+            "results": parsed_result.get("results", {}),
             "message": running_task.get("message")  # Optional
         })
 
