@@ -131,7 +131,7 @@ class Daemon:
         target = self.target + "api/v1/sat/" + end_point
         print("not json dump data:", data)
         print("sending result data:", json.dumps(data))
-        response = requests.post(target, data=json.dumps(data), verify=self.no_ssl_verify, headers={"Content-Type": "application/json"}, proxies=self.proxies, allow_redirects=False)
+        response = requests.post(target, data=json.dumps(data), verify=self.no_ssl_verify, headers={"Content-Type": "application/json", "Accept": "application/json"}, proxies=self.proxies, allow_redirects=False)
 
         if response.status_code != 200:
             print(f"Error sending to {'api/v1/sat/' + end_point}: Expected status code is 200, got {response.status_code}")
