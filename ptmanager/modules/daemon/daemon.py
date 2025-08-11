@@ -1,4 +1,5 @@
 import argparse
+import copy
 import json; from json.decoder import JSONDecodeError
 import os
 import subprocess
@@ -122,9 +123,28 @@ class Daemon:
             # Send to API
             response = self.send_to_api(end_point="result", data=task_dict)
 
-            # If send fails, re-append the task to store (optional but useful)
-            if response.status_code != 200:
+            # If send fails with 422 or 500, create a new modified copy and resend
+            if response.status_code in (422, 500):
+                # Deep copy to preserve original task_dict
+                modified_task = copy.deepcopy(task_dict)
+                modified_task["results"] = None
+                modified_task["data"] = copy.deepcopy(task_dict.get("results")) # Failed results to data key.
+
+                # Set status and message
+                modified_task["status"] = "failed"
+                modified_task["message"] = f"Send to result failed because of status code {response.status_code}"
+
+                # Resend modified task
+                response = self.send_to_api(end_point="result", data=modified_task)
+
+                # If still fails, re-append original task_dict (without modifications)
+                if response.status_code != 200:
+                    self.task_store.append_task(task_dict)
+
+            # If other failure, just re-append original
+            elif response.status_code != 200:
                 self.task_store.append_task(task_dict)
+
 
     def send_to_api(self, end_point, data) -> requests.Response:
         """Send data to the API."""
@@ -355,7 +375,7 @@ class Daemon:
             }
 
         except Exception as e:
-            print("Error sending request to server to retrieve tasks: {e}", e)
+            print(f"Error sending request to server to retrieve tasks: {e}", e)
             return
 
 
