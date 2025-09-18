@@ -22,3 +22,4 @@ pttechnologies
 ptssl
 ptelastic
 ptkibana
+ptvulns
