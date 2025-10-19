@@ -209,8 +209,6 @@ class ProjectManager:
                 self.config.delete()
                 self.config.make()
                 self.config.set_satid(UID)
-            else:
-                exit()
         else:
             self.config.set_satid(UID)
 

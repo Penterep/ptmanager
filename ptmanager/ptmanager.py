@@ -35,7 +35,7 @@ from ptlibs import ptprinthelper, ptjsonlib
 class PtManager:
     def __init__(self, args) -> None:
         self.ptjsonlib: object    = ptjsonlib.PtJsonLib()
-        self.config: object       = Config(config_path=os.path.join(os.path.expanduser("~"), ".ptmanager/"))
+        self.config: object       = Config(config_path=os.path.join(os.path.expanduser("~"), ".penterep", "ptmanager/"))
         self.proxies: dict        = args.proxy
         self.no_ssl_verify: bool  = args.no_ssl_verify
         self.use_json: bool       = False
@@ -46,14 +46,13 @@ class PtManager:
 
     def run(self, args: argparse.Namespace) -> None:
         """Main method"""
+        if args.init or not self.config.get_satid():
+            self._get_project_manager().register_uid()
 
         if args.temp_clean:
             temp_manager()
 
-        if args.init or not self.config.get_satid():
-            self._get_project_manager().register_uid()
-
-        elif args.project_new:
+        if args.project_new:
             self._get_project_manager().register_project(args.target, args.auth)
 
         elif args.project_start:
