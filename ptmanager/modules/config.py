@@ -1,4 +1,4 @@
-from ptlibs import ptprinthelper, ptjsonlib
+from ptlibs import ptprinthelper, ptjsonlib, app_dirs
 import json
 import os
 import shutil
@@ -9,7 +9,6 @@ from utils import prompt_confirmation
 class Config:
     NAME = "config.json"
     PROJECTS_KEY = "projects"
-    TEMP = "temp"
     SATID_KEY = "satid"
     PID_KEY = "pid"
     PORT_KEY = "port"
@@ -59,11 +58,11 @@ class Config:
         with open(self._config_path + self.NAME, "w") as f:
             json.dump(self._config, f, indent=4)
 
-
     def get_path(self) -> str:
         return self._config_path
 
     def get_temp_path(self) -> str:
+        #return app_dirs.AppDirs("ptmanager").get_data_dir()
         temp_path = self._config_path + self.TEMP + "/"
         os.makedirs(temp_path, exist_ok=True)
         return temp_path
