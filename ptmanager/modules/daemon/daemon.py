@@ -320,7 +320,7 @@ class Daemon:
                 parsed_result = json.loads(output_content)
         except Exception:
             parsed_result = {}
-            output_content = output_content if output_content else "File is empty."
+            output_content = output_content if output_content else "Automat returned empty result."
             running_task["message"] = f"Error description: {output_content}"
 
         # Update task with result
