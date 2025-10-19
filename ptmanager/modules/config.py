@@ -10,6 +10,7 @@ class Config:
     NAME = "config.json"
     PROJECTS_KEY = "projects"
     SATID_KEY = "satid"
+    TEMP = "temp"
     PID_KEY = "pid"
     PORT_KEY = "port"
 
