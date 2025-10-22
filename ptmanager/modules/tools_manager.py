@@ -440,6 +440,11 @@ class ToolsManager:
             except Exception:
                 pass
 
+        if tool_name == "ptwordlists":
+            import ptwordlists.utils.symlink
+            status, msg = ptwordlists.utils.symlink.register_wordlists_symlink()
+
+
     def is_penterep_venv(self, expected_path: str) -> bool:
         """
         Returns True if the current Python interpreter is running inside the expected (penterep) virtual environment.
