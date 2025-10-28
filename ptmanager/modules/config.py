@@ -15,8 +15,11 @@ class Config:
     PORT_KEY = "port"
 
     def __init__(self, config_path: str) -> None:
-        self._config_path = config_path
         self._config: dict[list] = None
+        self._config_path = config_path
+
+        self._migrate_old_config_if_needed() # TODO: Temporary function to migrate old path...
+
         try:
             self.load()
         except FileNotFoundError:
@@ -26,6 +29,24 @@ class Config:
                 self.make()
             else:
                 sys.exit(1)
+
+    def _migrate_old_config_if_needed(self) -> None:
+        OLD_PATH = os.path.expanduser("~/.ptmanager/")
+        NEW_PATH = os.path.expanduser("~/.penterep/ptmanager/")
+
+        old_file = os.path.join(OLD_PATH, self.NAME)
+        new_file = os.path.join(self._config_path, self.NAME)
+
+        if os.path.exists(old_file) and not os.path.exists(new_file):
+            os.makedirs(self._config_path, exist_ok=True)
+            shutil.move(old_file, new_file)
+            print(f"Migrated old config from {old_file} to {new_file}")
+
+            # Optional: remove old directory if empty
+            try:
+                os.rmdir(OLD_PATH)
+            except OSError:
+                pass  # Directory not empty, leave it
 
     def __repr__(self) -> None:
         print(self._config)
