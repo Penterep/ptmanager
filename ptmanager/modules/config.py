@@ -14,7 +14,7 @@ class Config:
     PID_KEY = "pid"
     PORT_KEY = "port"
 
-    def __init__(self, config_path: str) -> None:
+    def __init__(self, config_path: str = os.path.join(os.path.expanduser("~"), ".penterep", "ptmanager/")) -> None:
         self._config: dict[list] = None
         self._config_path = config_path
 
