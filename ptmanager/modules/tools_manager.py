@@ -5,6 +5,7 @@ import sys; sys.path.extend([__file__.rsplit("/", 1)[0], os.path.join(__file__.r
 import requests
 import time
 import threading
+import importlib
 import itertools
 import json
 
@@ -292,7 +293,8 @@ class ToolsManager:
                 status_map[tool] = "Already installed"
             elif tool in final_installed_versions:
                 status_map[tool] = "Installed: OK"
-                self.register_tool(tool)
+                self.run_hook(tool, "register")
+                self.run_hook(tool, "install")
             else:
                 status_map[tool] = "Install failed"
 
@@ -409,6 +411,8 @@ class ToolsManager:
                 status_map[tool] = "Cannot be deleted from ptmanager"
             elif tool in installed_versions and tool not in final_installed_versions:
                 status_map[tool] = "Uninstall: OK"
+                self.run_hook(tool, "uninstall")
+                
             elif tool not in installed_versions:
                 status_map[tool] = "Already uninstalled"
             else:
@@ -418,32 +422,24 @@ class ToolsManager:
         self._print_tools_table(tools=[tool["name"] for tool in self.script_list], status_map=status_map)
         print()
 
-
-    def register_tool(self, tool_name: str) -> None:
+    def run_hook(self, tool_name: str, action: str):
         """
-        Registers the specified tool using the system launcher registration script.
-
-        This method is used to create or update launchers (e.g. shell scripts, symlinks, or desktop entries)
-        for tools that have been installed in a virtual environment. It assumes the presence of the
-        external utility `/usr/local/bin/register-tools`, which handles the creation of appropriate launch points.
-
-        Args:
-            tool_name (str): The name of the tool to register.
-
-        Behavior:
-            - Only runs if in a penterep virtual environment (self._is_penterep_venv).
-            - Silently ignores errors (non-blocking).
+        action: "install" or "uninstall", "register
         """
-        if self._is_penterep_venv:
+        if action == "register":
+            if self._is_penterep_venv:
+                try:
+                    # Register tool launcher
+                    subprocess.run(["/usr/local/bin/register-tools", tool_name], check=True)
+                except Exception:
+                    pass
+        else:
             try:
-                subprocess.run(["/usr/local/bin/register-tools", tool_name], check=True)
+                module = importlib.import_module(f"modules.hooks.{tool_name}")
+                getattr(module, action)()
             except Exception:
+                sys.stdout.write("\033[?25h")  # Show cursor
                 pass
-
-        if tool_name == "ptwordlists":
-            import ptwordlists.utils.symlink
-            status, msg = ptwordlists.utils.symlink.register_wordlists_symlink()
-
 
     def is_penterep_venv(self, expected_path: str) -> bool:
         """
