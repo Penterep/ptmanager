@@ -22,7 +22,7 @@ from task_store import TaskStore
 
 class Daemon:
     def __init__(self, args):
-        self.config: Config          = Config(config_path=os.path.join(os.path.expanduser("~"), ".ptmanager/"))
+        self.config: Config          = Config(config_path=os.path.join(os.path.expanduser("~"), ".penterep", "ptmanager/"))
         self.project_id: str         = args.project_id
         self.target: str             = args.target
         self.no_ssl_verify: bool     = args.no_ssl_verify
