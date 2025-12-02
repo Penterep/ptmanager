@@ -20,7 +20,6 @@ from typing import Tuple
 def install():
     """Create or update the ptwordlists symlink after installation."""
     try:
-        print("install method...")
         status, msg = _register_wordlists_symlink()
     except Exception as e:
         pass
