@@ -10,7 +10,7 @@ import queue
 from ptlibs import ptjsonlib
 
 class BurpSocketListener:
-    def __init__(self, daemon, config, port, data_callback=None):
+    def __init__(self, daemon, satid, port, data_callback=None):
         print(f"Starting listener on port: {port}")
         self.host = '127.0.0.1'  # Localhost
         self.port = port #56651
@@ -18,7 +18,7 @@ class BurpSocketListener:
         self.client_connection = None
         self.client_address = None
         self.daemon = daemon
-        self.config = config
+        self.satid = satid
 
         self.domain_guid_map = {}  # domain -> guid
 
@@ -156,7 +156,7 @@ class BurpSocketListener:
 
     def handle_burp_data_with_guid(self, data, guid):
         """Handle Burp data and forward it to the API."""
-        data["satid"] = self.config.get_satid()
+        data["satid"] = self.satid
         data["guid"]  = guid
 
         time.sleep(1)
