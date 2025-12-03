@@ -46,8 +46,6 @@ class PtManager:
 
     def run(self, args: argparse.Namespace) -> None:
         """Main method"""
-        if args.init or not self.config.get_satid():
-            self._get_project_manager().register_uid()
 
         if args.temp_clean:
             temp_manager()
