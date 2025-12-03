@@ -24,10 +24,11 @@ class Daemon:
     def __init__(self, args):
         self.config: Config          = Config(config_path=os.path.join(os.path.expanduser("~"), ".penterep", "ptmanager/"))
         self.project_id: str         = args.project_id
+        self.satid                   = self.config.get_satid(self.project_id)
         self.target: str             = args.target
         self.no_ssl_verify: bool     = args.no_ssl_verify
-        self.socket_port: str        = args.port
         self.burpsuite_port          = args.port
+        self.socket_port: str        = args.port
         self.socket_address: str     = "127.0.0.1"
         self.proxies: dict           = {"http": args.proxy, "https": args.proxy}
         self.project_dir: str        = os.path.join(self.config.get_path(), "projects", self.project_id)
@@ -38,6 +39,7 @@ class Daemon:
         self.free_threads            = [i for i in range(args.threads)]
         self.threads_list            = ["" for _ in range(args.threads)]
         self.lock                    = threading.Lock() # Tasks lock
+        
 
         # Create project_dir if not exists
         if not os.path.isdir(self.project_dir):
@@ -52,7 +54,7 @@ class Daemon:
 
     def start_burp_listener(self, queue):
         """Start BurpSuite listener for incoming data."""
-        self.burp_listener = BurpSocketListener(daemon=self, config=self.config, port=int(self.socket_port), data_callback=lambda d: queue.put(d))
+        self.burp_listener = BurpSocketListener(daemon=self, satid=self.self.satid, port=int(self.socket_port), data_callback=lambda d: queue.put(d))
 
     def start_loop(self, target, auth) -> None:
         """Main loop for task processing."""
@@ -116,7 +118,7 @@ class Daemon:
 
         for task_dict in finished_tasks:
             # Prepare task
-            task_dict["satid"] = self.config.get_satid()
+            task_dict["satid"] = self.satid
             task_dict.pop("pid", None)
             task_dict.pop("timeStamp", None)
 
@@ -344,7 +346,7 @@ class Daemon:
         tasks_url = self.target + "api/v1/sat/tasks"
         try:
             headers = {"Content-Type": "application/json"}
-            payload = {"satid": self.config.get_satid()}
+            payload = {"satid": self.satid}
             response = requests.post(
                 tasks_url,
                 data=json.dumps(payload),

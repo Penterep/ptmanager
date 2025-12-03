@@ -34,29 +34,30 @@ class ProjectManager:
             self.ptjsonlib.end_error("Missing --target parameter", self.use_json)
         if not auth_token:
             self.ptjsonlib.end_error("Missing --auth parameter", self.use_json)
-        if not self.config.get_satid():
-            self.ptjsonlib.end_error("Please run 'ptmanager --init' first.", self.use_json)
         if not target_url.endswith("/"):
             target_url += "/"
         for project in self.config.get_projects():
             if project.get('auth') == auth_token:
                 self.ptjsonlib.end_error("Provided authorization token has already been used.", self.use_json)
 
+        ptprinthelper.ptprint(f"Registering new project ...", "TITLE", condition=True, colortext=False, clear_to_eol=True)
         try:
-            ptprinthelper.ptprint(f"Registering new project ...", "TITLE", condition=True, colortext=False, clear_to_eol=True)
-            try:
-                response = requests.post(url=self._get_registration_url(target_url), proxies=self.proxies, allow_redirects=False, verify=self.no_ssl_verify, data=json.dumps({"token": auth_token, "satid": self.config.get_satid()}), headers={"Content-Type": "application/json"})
-                if response.status_code != 200:
-                    raise Exception(f"Expected status code 200, got {response.status_code}")
-            except requests.RequestException:
-                raise Exception("Error communicating with server, check your URL")
+            satid = str(uuid.uuid1())
+            response = requests.post(url=self._get_registration_url(target_url), proxies=self.proxies, allow_redirects=False, verify=self.no_ssl_verify, data=json.dumps({"token": auth_token, "satid": satid}), headers={"Content-Type": "application/json"})
+            if response.status_code != 200:
+                raise Exception(f"Expected status code 200, got {response.status_code}")
+        except requests.RequestException:
+            raise Exception("Error communicating with server, check your URL")
+
+        try:    
             response_data = response.json()
             if response_data.get("success"):
                 ptprinthelper.ptprint(f"{response_data['message']}\n", "TITLE", condition=True, colortext=False, clear_to_eol=True)
+
                 #print(response.json())
                 project_name = self._get_unique_project_name(base_name=response_data['data']['name'])
                 tenant = response_data['data'].get("tenant")
-                self.config.add_project({"project_name": project_name, "tenant": tenant, "target": target_url, "auth": auth_token, "pid": None, "port": None, "AS-ID": ''.join(random.choice(string.ascii_lowercase + string.digits) for _ in range(8))})
+                self.config.add_project({"project_name": project_name, "tenant": tenant, "target": target_url, "auth": auth_token, "pid": None, "port": None, "satid": satid, "AS-ID": ''.join(random.choice(string.ascii_lowercase + string.digits) for _ in range(8))})
                 self.list_projects()
             else:
                 raise Exception("Invalid response data")
@@ -154,7 +155,7 @@ class ProjectManager:
             ptprinthelper.ptprint(f"Deleting project {self.config.get_project(project_id).get('project_name')} ...", "TITLE", condition=True, colortext=False, clear_to_eol=True)
 
             # Send request to delete from AS
-            response = requests.post(url=url, proxies=self.proxies, verify=self.no_ssl_verify, data=json.dumps({"satid": self.config.get_satid()}), headers={"Content-Type": "application/json"}, allow_redirects=False)
+            response = requests.post(url=url, proxies=self.proxies, verify=self.no_ssl_verify, data=json.dumps({"satid": self.config.get_satid(project_id)}), headers={"Content-Type": "application/json"}, allow_redirects=False)
             self.config.remove_project(project_id)
             ptprinthelper.ptprint(f"Project {project.get('project_name')} deleted succesfully", "TITLE", condition=True, colortext=False, clear_to_eol=True)
         except (requests.RequestException) as e:
@@ -200,17 +201,6 @@ class ProjectManager:
             print(f"{port}{' '*(15-len(str(port)))}", end="")
 
             print("")
-
-    def register_uid(self) -> None:
-        UID = str(uuid.uuid1())
-        if self.config.get_satid():
-            if prompt_confirmation(f"This will delete all your existing projects. This action cannot be undone.", bullet_type="TEXT"):
-                self.config.delete_projects()
-                self.config.delete()
-                self.config.make()
-                self.config.set_satid(UID)
-        else:
-            self.config.set_satid(UID)
 
     def _get_unique_project_name(self, base_name):
         """Returns unique project name if project with <base_name> already exists."""
