@@ -124,6 +124,9 @@ class Daemon:
 
             # Send to API
             response = self.send_to_api(end_point="result", data=task_dict)
+            if response is None:
+                self.task_store.append_task(task_dict)
+                continue
 
             # If send fails with 422 or 500, create a new modified copy and resend
             if response.status_code in (422, 500):
@@ -138,10 +141,10 @@ class Daemon:
 
                 # Resend modified task
                 response = self.send_to_api(end_point="result", data=modified_task)
-
                 # If still fails, re-append original task_dict (without modifications)
-                if response.status_code != 200:
+                if response is None or response.status_code != 200:
                     self.task_store.append_task(task_dict)
+                    continue
 
             # If other failure, just re-append original
             elif response.status_code != 200:
@@ -151,13 +154,16 @@ class Daemon:
     def send_to_api(self, end_point, data) -> requests.Response:
         """Send data to the API."""
         target = self.target + "api/v1/sat/" + end_point
-        print("not json dump data:", data)
-        print("sending result data:", json.dumps(data))
-        response = requests.post(target, data=json.dumps(data), verify=self.no_ssl_verify, headers={"Content-Type": "application/json", "Accept": "application/json"}, proxies=self.proxies, allow_redirects=False)
-
-        if response.status_code != 200:
-            print(f"Error sending to {'api/v1/sat/' + end_point}: Expected status code is 200, got {response.status_code}")
-        return response
+        try:
+            print("data to send:", json.dumps(data))
+            response = requests.post(target, data=json.dumps(data), verify=self.no_ssl_verify, headers={"Content-Type": "application/json", "Accept": "application/json"}, proxies=self.proxies, allow_redirects=False)
+            if response.status_code != 200:
+                print(f"Error sending to {'api/v1/sat/' + end_point}: Expected status code is 200, got {response.status_code}")
+            return response
+        except requests.RequestException as e:
+            print(f"Error sending to {'api/v1/sat/' + end_point}: {e}")
+        except TypeError:
+            print(f"Data to send cannot be serialized to JSON (data: {data})")
 
     def status_all_tasks(self) -> None:
         """
