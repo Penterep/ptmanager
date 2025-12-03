@@ -96,10 +96,18 @@ class Config:
             self._config[self.PROJECTS_KEY] = []
             self.save()
             return self.get_projects()
+    
+    def get_project(self, project_id: int):
+        try:
+            return self._config[self.PROJECTS_KEY][project_id]
+        except Exception as e:
+            print(f"Error retrieving project - {e}")
 
-
-    def get_satid(self) -> str:
-        return self._config[self.SATID_KEY]
+    def get_satid(self, project_id: int) -> str:
+        try:
+            self._config[self.PROJECTS_KEY][project_id].get("satid")
+        except Exception as e:
+            print(f"Error retrieving satid - {e}")
 
 
     def set_satid(self, UID) -> None:
@@ -131,11 +139,3 @@ class Config:
             pass
         self._config[self.PROJECTS_KEY].pop(project_id)
         self.save()
-
-
-    def get_project(self, project_id: int):
-        try:
-            return self._config[self.PROJECTS_KEY][project_id]
-        except Exception as e:
-            print(f"Error retrieving project - {e}")
-            sys.exit(1)
