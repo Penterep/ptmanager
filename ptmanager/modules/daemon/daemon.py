@@ -54,7 +54,7 @@ class Daemon:
 
     def start_burp_listener(self, queue):
         """Start BurpSuite listener for incoming data."""
-        self.burp_listener = BurpSocketListener(daemon=self, satid=self.self.satid, port=int(self.socket_port), data_callback=lambda d: queue.put(d))
+        self.burp_listener = BurpSocketListener(daemon=self, satid=self.satid, port=int(self.socket_port), data_callback=lambda d: queue.put(d))
 
     def start_loop(self, target, auth) -> None:
         """Main loop for task processing."""
