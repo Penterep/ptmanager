@@ -105,7 +105,7 @@ class Config:
 
     def get_satid(self, project_id: int) -> str:
         try:
-            return self._config[self.PROJECTS_KEY][project_id].get("satid", self.config[self.SATID_KEY])
+            return self.get_project(project_id).get("satid", self._config[self.SATID_KEY])
         except Exception as e:
             print(f"Error retrieving satid - {e}")
 
