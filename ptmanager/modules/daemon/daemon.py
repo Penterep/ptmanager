@@ -24,11 +24,11 @@ class Daemon:
     def __init__(self, args):
         self.config: Config          = Config(config_path=os.path.join(os.path.expanduser("~"), ".penterep", "ptmanager/"))
 
-        self.satid                   = self.config.get_satid(args.project_id)
         self.project                 = self.config.get_project(args.project_id)
         self.as_id: str              = self.project["AS-ID"]
         self.target: str             = self.project["target"]
         self.auth: str               = self.project["auth"]
+        self.satid                   = self.config.get_satid()
 
         self.no_ssl_verify: bool     = args.no_ssl_verify
         self.burpsuite_port: int     = 10000 + args.project_id

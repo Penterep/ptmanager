@@ -4,6 +4,8 @@ import os
 import shutil
 import sys
 
+import uuid
+
 from utils import prompt_confirmation
 
 class Config:
@@ -112,9 +114,9 @@ class Config:
         except Exception as e:
             print(f"Error retrieving project by AS-ID - {e}")
 
-    def get_satid(self, project_id: int) -> str:
+    def get_satid(self) -> str:
         try:
-            return self.get_project(project_id).get("satid", self._config[self.SATID_KEY])
+            return self._config[self.SATID_KEY]
         except Exception as e:
             print(f"Error retrieving satid - {e}")
 
@@ -148,3 +150,15 @@ class Config:
             pass
         self._config[self.PROJECTS_KEY].pop(project_id)
         self.save()
+
+
+    def register_uid(self) -> None:
+        UID = str(uuid.uuid1())
+        if self.get_satid():
+            if prompt_confirmation(f"This will delete all your existing projects. This action cannot be undone.", bullet_type="TEXT"):
+                self.config.delete_projects()
+                self.config.delete()
+                self.config.make()
+                self.config.set_satid(UID)
+        else:
+            self.config.set_satid(UID)
