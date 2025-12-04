@@ -44,10 +44,15 @@ class ProjectManager:
         try:
             satid = str(uuid.uuid1())
             response = requests.post(url=self._get_registration_url(target_url), proxies=self.proxies, allow_redirects=False, verify=self.no_ssl_verify, data=json.dumps({"token": auth_token, "satid": satid}), headers={"Content-Type": "application/json"})
+
+            if response.status_code == 404:
+                self.ptjsonlib.end_error("Server not found (404). No server matches the token provided via --auth/-a.", self.use_json)
+
             if response.status_code != 200:
-                raise Exception(f"Expected status code 200, got {response.status_code}")
+                self.ptjsonlib.end_error(f"Expected status code 200, got {response.status_code}", self.use_json)
+
         except requests.RequestException:
-            raise Exception("Error communicating with server, check your URL")
+            self.ptjsonlib.end_error("Error communicating with server, check your URL", self.use_json)
 
         try:    
             response_data = response.json()
@@ -60,7 +65,8 @@ class ProjectManager:
                 self.config.add_project({"project_name": project_name, "tenant": tenant, "target": target_url, "auth": auth_token, "pid": None, "port": None, "satid": satid, "AS-ID": ''.join(random.choice(string.ascii_lowercase + string.digits) for _ in range(8))})
                 self.list_projects()
             else:
-                raise Exception("Invalid response data")
+                self.ptjsonlib.end_error("Invalid response data", self.use_json)
+
         except Exception as e:
             self.ptjsonlib.end_error(f"Registering new project: {e}.", self.use_json)
 
