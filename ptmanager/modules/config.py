@@ -103,6 +103,15 @@ class Config:
         except Exception as e:
             print(f"Error retrieving project - {e}")
 
+    def get_project_by_asid(self, asid: str):
+        try:
+            for project in self._config[self.PROJECTS_KEY]:
+                if project.get("AS-ID") == asid:
+                    return project
+            return None
+        except Exception as e:
+            print(f"Error retrieving project by AS-ID - {e}")
+
     def get_satid(self, project_id: int) -> str:
         try:
             return self.get_project(project_id).get("satid", self._config[self.SATID_KEY])
