@@ -23,15 +23,19 @@ from task_store import TaskStore
 class Daemon:
     def __init__(self, args):
         self.config: Config          = Config(config_path=os.path.join(os.path.expanduser("~"), ".penterep", "ptmanager/"))
-        self.project_id: str         = args.project_id
-        self.satid                   = self.config.get_satid(self.project_id)
-        self.target: str             = args.target
+
+        self.satid                   = self.config.get_satid(args.project_id)
+        self.project                 = self.config.get_project(args.project_id)
+        self.as_id: str              = self.project["AS-ID"]
+        self.target: str             = self.project["target"]
+        self.auth: str               = self.project["auth"]
+
         self.no_ssl_verify: bool     = args.no_ssl_verify
-        self.burpsuite_port          = args.port
-        self.socket_port: str        = args.port
+        self.burpsuite_port: int     = 10000 + args.project_id
+        self.socket_port: str        = 10000 + args.project_id
         self.socket_address: str     = "127.0.0.1"
         self.proxies: dict           = {"http": args.proxy, "https": args.proxy}
-        self.project_dir: str        = os.path.join(self.config.get_path(), "projects", self.project_id)
+        self.project_dir: str        = os.path.join(self.config.get_path(), "projects", self.as_id)
 
         self.project_tasks_file: str = os.path.join(self.project_dir, "tasks.json")
         self.task_store              = TaskStore(self.project_tasks_file)
@@ -40,6 +44,7 @@ class Daemon:
         self.threads_list            = ["" for _ in range(args.threads)]
         self.lock                    = threading.Lock() # Tasks lock
         
+        self.config.set_project_port(args.project_id, self.socket_port)
 
         # Create project_dir if not exists
         if not os.path.isdir(self.project_dir):
@@ -50,11 +55,11 @@ class Daemon:
         self.burpsuite_listener_thread.start()
 
         # Start AS loop
-        self.start_loop(args.target, args.auth)
+        self.start_loop(self.target, self.auth)
 
     def start_burp_listener(self, queue):
         """Start BurpSuite listener for incoming data."""
-        self.burp_listener = BurpSocketListener(daemon=self, satid=self.satid, port=int(self.socket_port), data_callback=lambda d: queue.put(d))
+        self.burp_listener = BurpSocketListener(daemon=self, satid=self.satid, port=int(self.burpsuite_port), data_callback=lambda d: queue.put(d))
 
     def start_loop(self, target, auth) -> None:
         """Main loop for task processing."""
@@ -389,15 +394,14 @@ class Daemon:
 
 def parse_args():
     parser = argparse.ArgumentParser(add_help=False)
-    parser.add_argument("--target",          type=str, required=True)
-    parser.add_argument("--auth",            type=str, required=True)
-    parser.add_argument("--project-id",     type=str)
+    parser.add_argument("--project-id",      type=str)
     parser.add_argument("--proxy",           type=str)
-    parser.add_argument("--port",            type=str)
-    parser.add_argument("--no_ssl_verify",   action="store_false")
     parser.add_argument("--threads",         type=int, default=20)
+    parser.add_argument("--no_ssl_verify",   action="store_false")
 
     args = parser.parse_args()
+    args.project_id = int(args.project_id)
+
     return args
 
 

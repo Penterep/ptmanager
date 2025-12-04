@@ -84,21 +84,18 @@ class ProjectManager:
                 self.ptjsonlib.end_error(f"Project {self.config.get_project(project_id).get('project_name', '')} is already running (PID: {project['pid']})", self.use_json)
 
         try:
-            project_port: int = 10000 + project_id # burp
-
-            #print(os.path.join(__file__.rsplit("/", 3)[0]))
-
-            # Construct daemon args
-            #subprocess_args = [sys.executable, "-m", ,"daemon", "daemon.py")), "--target", project["target"], "--auth", project["auth"], "--project-id", project["AS-ID"], "--port", str(project_port)]
-            subprocess_args = [sys.executable, os.path.realpath(os.path.join(__file__.rsplit("/", 1)[0], "daemon", "daemon.py")), "--target", project["target"], "--auth", project["auth"], "--project-id", project["AS-ID"], "--port", str(project_port)]
-            if self.proxies.get("http"):
-                subprocess_args += ["--proxy", self.proxies.get("http")]
-            if not self.no_ssl_verify:
-                subprocess_args += ["--no_ssl_verify"]
-
             if not project["target"] or not project["auth"] :
                 self.ptjsonlib.end_error(f"Target and auth are required", self.use_json)
 
+            # Construct daemon args 
+            path_to_daemon: str = os.path.realpath(os.path.join(__file__.rsplit("/", 1)[0], "daemon", "daemon.py"))
+            subprocess_args = [sys.executable, path_to_daemon, "--project-id", str(project_id)]
+           
+            if self.proxies.get("http"):
+                subprocess_args += ["--proxy", self.proxies.get("http")]
+           
+            if not self.no_ssl_verify:
+                subprocess_args += ["--no_ssl_verify"]
 
             # Start daemon.py via subprocess
             if self.debug:
@@ -110,7 +107,6 @@ class ProjectManager:
             self.ptjsonlib.end_error(e, self.use_json)
 
         self.config.set_project_pid(project_id, process.pid)
-        self.config.set_project_port(project_id, project_port)
         ptprinthelper.ptprint(f"Started project {self.config.get_project(project_id).get('project_name', '')} (PID: {self.config.get_pid(project_id)})\n", "TITLE", condition=True, colortext=False, clear_to_eol=True)
         if list_projects:
             self.list_projects()
