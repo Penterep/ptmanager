@@ -1,6 +1,7 @@
 import subprocess
 import re
 import os
+import shutil
 import sys; sys.path.extend([__file__.rsplit("/", 1)[0], os.path.join(__file__.rsplit("/", 1)[0], "modules")])
 import requests
 import time
@@ -13,6 +14,7 @@ from ptlibs import ptjsonlib, ptprinthelper, ptmisclib
 from ptlibs.ptprinthelper import get_colored_text
 
 from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
 
 class ToolsManager:
     def __init__(self, ptjsonlib: ptjsonlib.PtJsonLib, use_json: bool) -> None:
@@ -439,6 +441,15 @@ class ToolsManager:
                 getattr(module, action)()
             except Exception:
                 sys.stdout.write("\033[?25h")  # Show cursor
+                pass
+        
+        # remove from home
+        if action == "uninstall":
+            try:
+                tool_dir = Path.home() / ".penterep" / tool_name  # full path to remove
+                if tool_dir.exists() and tool_dir.is_dir():
+                    shutil.rmtree(tool_dir, ignore_errors=True)
+            except Exception as e:
                 pass
 
     def is_penterep_venv(self, expected_path: str) -> bool:
