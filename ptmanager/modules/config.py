@@ -16,9 +16,9 @@ class Config:
     PID_KEY = "pid"
     PORT_KEY = "port"
 
-    def __init__(self, config_path: str = os.path.join(os.path.expanduser("~"), ".penterep", "ptmanager/")) -> None:
+    def __init__(self, config_path: str) -> None:
         self._config: dict[list] = None
-        self._config_path = config_path
+        self.config_path: str = os.path.join(os.path.expanduser("~"), ".penterep", "ptmanager/")
 
         self._migrate_old_config_if_needed() # TODO: Temporary function to migrate old path...
 
@@ -37,10 +37,10 @@ class Config:
         NEW_PATH = os.path.expanduser("~/.penterep/ptmanager/")
 
         old_file = os.path.join(OLD_PATH, self.NAME)
-        new_file = os.path.join(self._config_path, self.NAME)
+        new_file = os.path.join(self.config_path, self.NAME)
 
         if os.path.exists(old_file) and not os.path.exists(new_file):
-            os.makedirs(self._config_path, exist_ok=True)
+            os.makedirs(self.config_path, exist_ok=True)
             shutil.move(old_file, new_file)
             print(f"Migrated old config from {old_file} to {new_file}")
 
@@ -54,40 +54,40 @@ class Config:
         print(self._config)
 
     def load(self) -> dict[list]:
-        with open(self._config_path + self.NAME) as f:
+        with open(self.config_path + self.NAME) as f:
             self._config = json.load(f)
 
     def make(self) -> dict[list]:
         self.assure_config_path()
-        with open(self._config_path + self.NAME, "w+") as f:
+        with open(self.config_path + self.NAME, "w+") as f:
             data = {self.SATID_KEY: None, self.PROJECTS_KEY: []}
             f.write(json.dumps(data, indent=4, sort_keys=True))
         self._config = json.loads(json.dumps(data))
 
     def assure_config_path(self) -> None:
-        os.makedirs(self._config_path, exist_ok=True)
+        os.makedirs(self.config_path, exist_ok=True)
 
     def delete(self) -> None:
-        os.remove(self._config_path + self.NAME)
+        os.remove(self.config_path + self.NAME)
 
     def delete_projects(self) -> None:
         try:
-            shutil.rmtree(os.path.join(self._config_path, self.PROJECTS_KEY))
+            shutil.rmtree(os.path.join(self.config_path, self.PROJECTS_KEY))
         except FileNotFoundError as e:
             pass
         except Exception as e:
             print(e)
 
     def save(self) -> None:
-        with open(self._config_path + self.NAME, "w") as f:
+        with open(self.config_path + self.NAME, "w") as f:
             json.dump(self._config, f, indent=4)
 
     def get_path(self) -> str:
-        return self._config_path
+        return self.config_path
 
     def get_temp_path(self) -> str:
         #return app_dirs.AppDirs("ptmanager").get_data_dir()
-        temp_path = self._config_path + self.TEMP + "/"
+        temp_path = self.config_path + self.TEMP + "/"
         os.makedirs(temp_path, exist_ok=True)
         return temp_path
 
@@ -121,8 +121,8 @@ class Config:
             print(f"Error retrieving satid - {e}")
 
 
-    def set_satid(self, UID) -> None:
-        self._config[self.SATID_KEY] = UID
+    def set_satid(self, satid: str) -> None:
+        self._config[self.SATID_KEY] = satid
 
 
     def add_project(self, project: dict[str]) -> None:
@@ -145,7 +145,7 @@ class Config:
 
     def remove_project(self, project_id: int) -> None:
         try:
-            shutil.rmtree(os.path.join(self._config_path, self.PROJECTS_KEY, self.get_project(project_id).get("AS-ID")))
+            shutil.rmtree(os.path.join(self.config_path, self.PROJECTS_KEY, self.get_project(project_id).get("AS-ID")))
         except FileNotFoundError:
             pass
         self._config[self.PROJECTS_KEY].pop(project_id)
@@ -153,12 +153,12 @@ class Config:
 
 
     def register_uid(self) -> None:
-        UID = str(uuid.uuid1())
-        if self.get_satid():
-            if prompt_confirmation(f"This will delete all your existing projects. This action cannot be undone.", bullet_type="TEXT"):
-                self.config.delete_projects()
-                self.config.delete()
-                self.config.make()
-                self.config.set_satid(UID)
-        else:
-            self.config.set_satid(UID)
+        """Initialize the config with a new SATID, delete all existing projects"""
+        if prompt_confirmation(f"This will delete all your existing projects. This action cannot be undone.", bullet_type="TEXT"):
+            self.delete_projects()
+            self.delete()
+            self.make()
+            self.set_satid(satid=str(uuid.uuid1()))
+            self.save()
+
+        #print("Initialization complete. Your SATID is:", self.get_satid())
