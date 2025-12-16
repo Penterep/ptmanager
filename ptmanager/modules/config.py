@@ -154,10 +154,14 @@ class Config:
 
     def register_uid(self) -> None:
         """Initialize the config with a new SATID, delete all existing projects"""
-        if prompt_confirmation(f"This will delete all your existing projects. This action cannot be undone.", bullet_type="TEXT"):
-            self.delete_projects()
-            self.delete()
-            self.make()
+        if self.get_satid():
+            if prompt_confirmation(f"This will delete all your existing projects. This action cannot be undone.", bullet_type="TEXT"):
+                self.delete_projects()
+                self.delete()
+                self.make()
+                self.set_satid(satid=str(uuid.uuid1()))
+                self.save()
+        else:
             self.set_satid(satid=str(uuid.uuid1()))
             self.save()
 
