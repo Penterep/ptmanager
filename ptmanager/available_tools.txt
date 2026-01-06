@@ -26,3 +26,4 @@ ptvulns
 ptwordlists
 ptnetinspector
 ptopenvas
+ptgraphql
