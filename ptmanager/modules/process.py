@@ -19,7 +19,7 @@ class Process:
     def kill(self) -> bool:
         """Tries to kill process with PID"""
         try:
-            os.kill(self.PID, signal.SIGTERM) # Tries to kill process
+            os.kill(int(self.PID), signal.SIGTERM) # Tries to kill process
             return True
         except ProcessLookupError:
             return False
