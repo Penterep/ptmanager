@@ -27,4 +27,3 @@ ptwordlists
 ptnetinspector
 ptopenvas
 ptgraphql
-ptodnes
