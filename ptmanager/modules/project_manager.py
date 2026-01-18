@@ -17,6 +17,7 @@ from config import Config
 from process import Process
 from utils import prompt_confirmation
 
+from ptlibs.ptprinthelper import get_colored_text
 
 class ProjectManager:
     def __init__(self, ptjsonlib: ptjsonlib.PtJsonLib, use_json: bool, proxies: dict, no_ssl_verify: bool, config: Config, debug: bool) -> None:
@@ -170,15 +171,45 @@ class ProjectManager:
 
 
     def list_projects(self) -> None:
-        print(f"{ptprinthelper.get_colored_text('ID', 'TITLE')}{' '*4}{ptprinthelper.get_colored_text('Project Name', 'TITLE')}{' '*10}{ptprinthelper.get_colored_text('Tenant', 'TITLE')}{' '*9}{ptprinthelper.get_colored_text('PID', 'TITLE')}{' '*7}{ptprinthelper.get_colored_text('Status', 'TITLE')}{' '*9}{ptprinthelper.get_colored_text('Port', 'TITLE')}{' '*10}")
-        print(f"{'-'*6}{'-'*32}{'-'*10}{'-'*15}{'-'*5}{'-'*8}")
+        """Lists all registered projects."""
+        
+        projects = self.config.get_projects()
+        # base column widths
+        ID_W = 7
+        TENANT_W = 15
+        PID_W = 10
+        STATUS_W = 15
+        PORT_W = 15
+
+        # dynamic project name width (at least 22)
+        max_len_project_name = max([len(project['project_name']) for project in projects], default=12)
+        PROJ_W = max(22, max_len_project_name) + 3
+
+        max_len_tenant_name = max([len(project['tenant']) for project in projects], default=12)
+        TENANT_W = max(15, max_len_tenant_name) + 3
+
+        # Header with dynamic spacing after project name
+        print(
+            f"{get_colored_text('ID', 'TITLE')}{' '*(ID_W - len('ID'))}"
+            f"{get_colored_text('Project Name', 'TITLE')}{' '*(PROJ_W - len('Project Name'))}"
+            f"{get_colored_text('Tenant', 'TITLE')}{' '*(TENANT_W - len('Tenant'))}"
+            f"{get_colored_text('PID', 'TITLE')}{' '*(PID_W - len('PID'))}"
+            f"{get_colored_text('Status', 'TITLE')}{' '*(STATUS_W - len('Status'))}"
+            f"{get_colored_text('Port', 'TITLE')}{' '*(PORT_W - len('Port'))}"
+        )
+
+        # Separator line adjusted to the column widths
+        sep = (
+            '-'*ID_W + '-'*PROJ_W + '-'*TENANT_W + '-'*PID_W + '-'*STATUS_W + '-'*PORT_W
+        )
+        print(sep)
         if not self.config.get_projects():
             print(" ")
             self.ptjsonlib.end_error("No projects found, register a project first", self.use_json)
 
         for index, project in enumerate(self.config.get_projects(), 1):
             if project["pid"]:
-                if not Process(project["pid"]).is_running():
+                if not Process(int(project["pid"])).is_running():
                     self.config.set_project_pid(index - 1, None)
                     self.config.set_project_port(index - 1, None)
                     project["pid"] = None
@@ -194,12 +225,12 @@ class ProjectManager:
 
             tenant = project.get('tenant', '-')
 
-            print(f"{index}{' '*(6-len(str(index)))}", end="")
-            print(f"{project['project_name']}{' '*(22-len(project['project_name']))}", end="")
-            print(f"{tenant}{' '*(15-len(str(tenant)))}",       end="")
-            print(f"{str(pid)}{' '*(10-len(str(pid)))}", end="")
-            print(f"{status}{' '*(15-len(status))}", end="")
-            print(f"{port}{' '*(15-len(str(port)))}", end="")
+            print(f"{index}{' '*(ID_W-len(str(index)))}", end="")
+            print(f"{project['project_name']}{' '*(PROJ_W-len(project['project_name']))}", end="")
+            print(f"{tenant}{' '*(TENANT_W-len(str(tenant)))}",       end="")
+            print(f"{str(pid)}{' '*(PID_W-len(str(pid)))}", end="")
+            print(f"{status}{' '*(STATUS_W-len(status))}", end="")
+            print(f"{port}{' '*(PORT_W-len(str(port)))}", end="")
 
             print("")
 
