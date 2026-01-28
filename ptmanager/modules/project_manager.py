@@ -103,6 +103,8 @@ class ProjectManager:
             else:
                 process = subprocess.Popen(subprocess_args, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
+            self.config.set_project_port(project_id, 10000 + project_id)
+
         except Exception as e:
             self.ptjsonlib.end_error(e, self.use_json)
 
@@ -172,8 +174,10 @@ class ProjectManager:
 
     def list_projects(self) -> None:
         """Lists all registered projects."""
-        
         projects = self.config.get_projects()
+        if not projects:
+            self.ptjsonlib.end_error("No projects found, register a project first", self.use_json)
+
         # base column widths
         ID_W = 7
         TENANT_W = 15
@@ -186,7 +190,7 @@ class ProjectManager:
         PROJ_W = max(22, max_len_project_name) + 3
 
         max_len_tenant_name = max([len(project['tenant']) for project in projects], default=12)
-        TENANT_W = max(15, max_len_tenant_name) + 3
+        TENANT_W = max(15, max_len_tenant_name) + 3 + 4
 
         # Header with dynamic spacing after project name
         print(
@@ -203,18 +207,16 @@ class ProjectManager:
             '-'*ID_W + '-'*PROJ_W + '-'*TENANT_W + '-'*PID_W + '-'*STATUS_W + '-'*PORT_W
         )
         print(sep)
-        if not self.config.get_projects():
-            print(" ")
-            self.ptjsonlib.end_error("No projects found, register a project first", self.use_json)
 
         for index, project in enumerate(self.config.get_projects(), 1):
-            if project["pid"]:
+            pid = project["pid"]
+
+            if pid:
                 if not Process(int(project["pid"])).is_running():
                     self.config.set_project_pid(index - 1, None)
                     self.config.set_project_port(index - 1, None)
                     project["pid"] = None
 
-            pid = project["pid"]
             if pid:
                 status = "running"
             if not pid:
@@ -222,9 +224,7 @@ class ProjectManager:
                 pid = "-"
 
             port = project.get("port", "-") or "-"
-
             tenant = project.get('tenant', '-')
-
             print(f"{index}{' '*(ID_W-len(str(index)))}", end="")
             print(f"{project['project_name']}{' '*(PROJ_W-len(project['project_name']))}", end="")
             print(f"{tenant}{' '*(TENANT_W-len(str(tenant)))}",       end="")
