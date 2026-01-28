@@ -39,6 +39,7 @@ class BurpSocketListener:
     def process_incoming_burpsuite_data(self):
         """Process incoming BurpSuite data in a dedicated thread."""
         while True:
+            time.sleep(0.2)
             if not self.domain_guid_map:
                 self.clear_burp_queue()
             else:
