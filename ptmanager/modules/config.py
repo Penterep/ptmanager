@@ -51,11 +51,12 @@ class Config:
                 pass  # Directory not empty, leave it
 
     def __repr__(self) -> None:
-        print(self._config)
+        return str(self.load())
 
     def load(self) -> dict[list]:
         with open(self.config_path + self.NAME) as f:
             self._config = json.load(f)
+
 
     def make(self) -> dict[list]:
         self.assure_config_path()
@@ -120,27 +121,30 @@ class Config:
         except Exception as e:
             print(f"Error retrieving satid - {e}")
 
+    def get_pid(self, project_id):
+        return self._config[self.PROJECTS_KEY][project_id][self.PID_KEY]
 
     def set_satid(self, satid: str) -> None:
         self._config[self.SATID_KEY] = satid
+        self.save()
 
 
     def add_project(self, project: dict[str]) -> None:
         self._config[self.PROJECTS_KEY].append(project)
+        self.save()
 
-
-    def get_pid(self, project_id):
-        return self._config[self.PROJECTS_KEY][project_id][self.PID_KEY]
 
 
     def set_project_pid(self, project_id: int, pid: int) -> None:
         """Sets <pid> for <project_id>"""
         self._config[self.PROJECTS_KEY][project_id][self.PID_KEY] = pid
+        self.save()
 
 
     def set_project_port(self, project_id: int, port: int) -> None:
         """Sets <port> for <project_id>"""
         self._config[self.PROJECTS_KEY][project_id][self.PORT_KEY] = port
+        self.save()
 
 
     def remove_project(self, project_id: int) -> None:
