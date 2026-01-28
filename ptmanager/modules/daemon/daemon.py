@@ -44,7 +44,7 @@ class Daemon:
         self.threads_list            = ["" for _ in range(args.threads)]
         self.lock                    = threading.Lock() # Tasks lock
         
-        self.config.set_project_port(args.project_id, self.socket_port)
+        #self.config.set_project_port(args.project_id, self.socket_port)
 
         # Create project_dir if not exists
         if not os.path.isdir(self.project_dir):
