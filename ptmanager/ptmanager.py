@@ -149,7 +149,8 @@ def get_help() -> list[dict[str,any]]:
             ["-t",   "--threads",                "<threads>",        "Set number of threads"],
             ["-p",   "--proxy",                  "",                 "Set proxy"],
             ["-nv",  "--no-ssl-verify",          "",                 "Do not verify SSL connections"],
-            ["-tc",  "--temp-clean",              "",                "Clean penterep temp folder and exit"],
+            ["-tc",  "--temp-clean",             "",                 "Clean penterep temp folder and exit"],
+            ["",   "--debug",                    "",                 "Enable debug output for projects"],
             ["-v",   "--version",                "",                 "Show script version and exit"],
             ["-h",   "--help",                   "",                 "Show this help message and exit"],
             ]
