@@ -334,14 +334,14 @@ class Daemon:
         except Exception:
             parsed_result = {}
             output_content = output_content if output_content else "Automat returned empty result."
-            running_task["message"] = f"Error description: {output_content}"
+            parsed_result["message"] = f"Error description: {output_content}"
 
         # Update task with result
         running_task.update({
             "pid": None,
             "status": parsed_result.get("status", "error"),
             "results": parsed_result.get("results", {}),
-            "message": running_task.get("message")  # Optional
+            "message": parsed_result.get("message", "")
         })
 
         self.task_store.update_task(guid, running_task)
