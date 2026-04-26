@@ -26,7 +26,7 @@ ptvulns
 ptwordlists
 ptnetinspector
 ptopenvas
-ptgraphql
+ptapitester
 ptsrvtester
 ptuploader
 ptodnes
