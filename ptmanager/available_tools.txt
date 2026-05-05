@@ -27,6 +27,6 @@ ptwordlists
 ptnetinspector
 ptopenvas
 ptapitester
-ptsrvtester
+#ptsrvtester
 ptuploader
 ptodnes
