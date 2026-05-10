@@ -24,9 +24,9 @@ ptelastic
 ptkibana
 ptvulns
 ptwordlists
-ptnetinspector
+#ptnetinspector
 ptopenvas
 ptapitester
-ptsrvtester
+#ptsrvtester
 ptuploader
 ptodnes
