@@ -36,11 +36,11 @@ class PtManager:
     def __init__(self, args) -> None:
         self.ptjsonlib: object    = ptjsonlib.PtJsonLib()
         self.config: object       = Config(config_path=os.path.join(os.path.expanduser("~"), ".penterep", "ptmanager/"))
+        self.args                 = args
         self.proxies: dict        = args.proxy
         self.no_ssl_verify: bool  = args.no_ssl_verify
         self.use_json: bool       = False
         self.debug: bool          = args.debug
-
         if self.debug:
             print("[INFO] Config location:", os.path.join(os.path.expanduser("~"), ".ptmanager/"), end="\n\n")
 
@@ -106,7 +106,7 @@ class PtManager:
         return ProjectManager(ptjsonlib=self.ptjsonlib, use_json=self.use_json, proxies=self.proxies, no_ssl_verify=self.no_ssl_verify, config=self.config, debug=self.debug)
 
     def _get_tools_manager(self) -> ToolsManager:
-        return ToolsManager(ptjsonlib=self.ptjsonlib, use_json=self.use_json)
+        return ToolsManager(args=self.args, ptjsonlib=self.ptjsonlib, use_json=self.use_json)
 
     def validate_project_id(self, project_id) -> int:
         projects_list = [str(i) for i in range(1, len(self.config.get_projects())+1)]
@@ -150,7 +150,7 @@ def get_help() -> list[dict[str,any]]:
             ["-p",   "--proxy",                  "",                 "Set proxy"],
             ["-nv",  "--no-ssl-verify",          "",                 "Do not verify SSL connections"],
             ["-tc",  "--temp-clean",             "",                 "Clean penterep temp folder and exit"],
-            ["",   "--debug",                    "",                 "Enable debug output for projects"],
+            ["-vv",   "--debug",                    "",              "Enable debug output for projects"],
             ["-v",   "--version",                "",                 "Show script version and exit"],
             ["-h",   "--help",                   "",                 "Show this help message and exit"],
             ]
@@ -191,7 +191,7 @@ def parse_args():
     parser.add_argument("--port",                    type=str, default=None)
     parser.add_argument("--process-ident",           type=str, default=None)
     parser.add_argument("-tc", "--temp-clean",       action="store_true")
-    parser.add_argument("--debug",                   action="store_true")
+    parser.add_argument("-vv", "--debug",            action="store_true")
 
 
     if len(sys.argv) == 1 or "-h" in sys.argv or "--help" in sys.argv:
@@ -199,6 +199,8 @@ def parse_args():
         sys.exit(0)
 
     args = parser.parse_args()
+    args.proxy = {"http": args.proxy, "https": args.proxy} if args.proxy else None
+
     if int(bool(args.project_start))+int(bool(args.project_end))+int(bool(args.project_reset))+int(bool(args.project_delete)) > 1:
         ptjsonlib.PtJsonLib().end_error("Cannot combine project --start/--end/--reset/--delete  arguments together", True)
 

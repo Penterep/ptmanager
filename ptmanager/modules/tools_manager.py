@@ -17,7 +17,8 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 class ToolsManager:
-    def __init__(self, ptjsonlib: ptjsonlib.PtJsonLib, use_json: bool) -> None:
+    def __init__(self, args, ptjsonlib: ptjsonlib.PtJsonLib, use_json: bool) -> None:
+        self.args = args
         self.ptjsonlib = ptjsonlib
         self.use_json = use_json
         self._stop_spinner = False
@@ -178,7 +179,7 @@ class ToolsManager:
                 dict | None: Dictionary with name and version, or None if fetch fails.
             """
             try:
-                response = requests.get(f'https://pypi.org/pypi/{tool}/json')
+                response = requests.get(f'https://pypi.org/pypi/{tool}/json', proxies=self.args.proxy, verify=False)
                 if response.status_code == 200:
                     data = response.json()
                     return {"name": tool, "version": data["info"]["version"]}
@@ -190,13 +191,14 @@ class ToolsManager:
 
         try:
             url = "https://raw.githubusercontent.com/Penterep/ptmanager/main/ptmanager/available_tools.txt"
-            available_tools = requests.get(url).text.split("\n")
+            available_tools = requests.get(url, proxies=self.args.proxy, verify=False).text.split("\n")
             tools = sorted(set(tool.strip().lower() for tool in available_tools if tool.strip() and not tool.startswith("#")))
 
             with ThreadPoolExecutor(max_workers=10) as executor:
                 script_list = [res for res in executor.map(fetch_tool_info, tools) if res]
 
         except Exception as e:
+            print(e)
             stop_event.set()
             spinner_thread.join()
             sys.stdout.flush()
@@ -280,13 +282,31 @@ class ToolsManager:
             else:
                 status_map[tool] = "Installing..."
 
-        self._print_tools_table(tools=[tool["name"] for tool in self.script_list], status_map=status_map)
+        if not self.args.debug:
+            self._print_tools_table(tools=[tool["name"] for tool in self.script_list], status_map=status_map)
 
         if not tools_not_installed:
             return
 
         pip_args = [sys.executable, "-m", "pip", "install"] + tools_not_installed
+        if self.args.proxy:
+            pip_args += ["--proxy", self.args.proxy["https"], "--trusted-host", "pypi.org", "--trusted-host", "files.pythonhosted.org"]
+
         result = subprocess.run(pip_args, capture_output=True, text=True)
+
+        if self.args.debug:
+            print("Command:", " ".join(pip_args))
+
+            if result.stdout:
+                    print("STDOUT:")
+                    print(result.stdout)
+
+            if result.stderr:
+                    print("STDERR:")
+                    print(result.stderr)
+            
+            return
+
 
         final_installed_versions = self._get_installed_versions_map(valid_tools)
 
