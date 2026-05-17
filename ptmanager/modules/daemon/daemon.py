@@ -239,9 +239,6 @@ class Daemon:
 
     def kill_task(self, task) -> None:
         """Kills task with supplied guid."""
-        for t in self.threads_list:
-            if isinstance(t, threading.Thread) and t.name == task["guid"]:
-                t.join()
         try:
             os.remove(os.path.join(self.project_dir, task["guid"]))
         except OSError:
@@ -254,10 +251,10 @@ class Daemon:
                 tasks_list = json.loads(tasks_file.read())
                 for task_in_list in tasks_list:
                     if task_in_list["guid"] == task["guid"]:
-                        if task_in_list["pid"]:
-                            Process(task_in_list["pid"]).kill()
-                            task_in_list["status"] = "killed"
+                        if task_in_list["pid"] and not Process(task_in_list["pid"]).kill():
+                            task_in_list["status"] = "error"
                             task_in_list["pid"] = None
+                            task_in_list["message"] = "Process was not running."
                 tasks_file.seek(0)
                 tasks_file.truncate(0)
                 tasks_file.write(json.dumps(tasks_list, indent=4))
@@ -324,17 +321,25 @@ class Daemon:
         self.task_store.append_task(running_task)
 
         # Wait for completion
-        process.wait()
+        returncode = process.wait()
 
         # Load and parse result
-        try:
-            with open(temp_path, "r") as output_file:
-                output_content = output_file.read()
-                parsed_result = json.loads(output_content)
-        except Exception:
-            parsed_result = {}
-            output_content = output_content if output_content else "Automat returned empty result."
-            parsed_result["message"] = f"Error description: {output_content}"
+        if returncode < 0:
+            parsed_result = {
+                "status": "error",
+                "results": {},
+                "message": "Task was terminated prematurely."
+            }
+        else:
+            output_content = ""
+            try:
+                with open(temp_path, "r") as output_file:
+                    output_content = output_file.read()
+                    parsed_result = json.loads(output_content)
+            except Exception:
+                parsed_result = {}
+                output_content = output_content if output_content else "Automat returned empty result."
+                parsed_result["message"] = f"Error description: {output_content}"
 
         # Update task with result
         running_task.update({
@@ -346,7 +351,10 @@ class Daemon:
 
         self.task_store.update_task(guid, running_task)
 
-        os.remove(temp_path)
+        try:
+            os.remove(temp_path)
+        except OSError:
+            pass
 
         # Mark thread as free
         self.free_threads.append(thread_no)

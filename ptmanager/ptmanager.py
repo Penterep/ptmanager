@@ -70,6 +70,13 @@ class PtManager:
         elif args.project_list:
             self._get_project_manager().list_projects()
 
+        elif args.project_process_list:
+            self._get_project_manager().list_project_processes(self.validate_project_id(args.project_process_list))
+
+        elif args.project_process_kill:
+            project_id, guid = args.project_process_kill
+            self._get_project_manager().kill_project_process(self.validate_project_id(project_id), guid)
+
         elif args.tools_list:
             self._get_tools_manager()._print_tools_table()
 
@@ -134,6 +141,8 @@ def get_help() -> list[dict[str,any]]:
             ["-pr",  "--project-reset",        "<id>",     "Restart project"],
             ["-pd",  "--project-delete",       "<id>",     "Delete project"],
             ["-pe",  "--project-end",          "<id>",     "End project"],
+            ["-ppl", "--project-process-list", "<id>",     "List running project processes"],
+            ["-ppk", "--project-process-kill", "<id> <guid>", "Kill running project process"],
             ]
         },
         {"Tools options": [
@@ -176,6 +185,8 @@ def parse_args():
     parser.add_argument("-ep", "-pe",   "--project-end",     type=str)
     parser.add_argument("-rp", "-pr",   "--project-reset",   type=str)
     parser.add_argument("-dp", "-pd",   "--project-delete",  type=str)
+    parser.add_argument("-ppl",         "--project-process-list", type=str)
+    parser.add_argument("-ppk",         "--project-process-kill", type=str, nargs=2, metavar=("PROJECT_ID", "GUID"))
 
     parser.add_argument("-tl", "-lt",  "--tools-list",      action="store_true")
     parser.add_argument("-ti", "-it",  "--tools-install",   type=str, nargs="*")
@@ -201,8 +212,16 @@ def parse_args():
     args = parser.parse_args()
     args.proxy = {"http": args.proxy, "https": args.proxy} if args.proxy else None
 
-    if int(bool(args.project_start))+int(bool(args.project_end))+int(bool(args.project_reset))+int(bool(args.project_delete)) > 1:
-        ptjsonlib.PtJsonLib().end_error("Cannot combine project --start/--end/--reset/--delete  arguments together", True)
+    project_actions_count = sum(int(bool(action)) for action in (
+        args.project_start,
+        args.project_end,
+        args.project_reset,
+        args.project_delete,
+        args.project_process_list,
+        args.project_process_kill,
+    ))
+    if project_actions_count > 1:
+        ptjsonlib.PtJsonLib().end_error("Cannot combine project actions together", True)
 
     ptprinthelper.print_banner(SCRIPTNAME, __version__, False, 0)
     return args

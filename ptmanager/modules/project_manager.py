@@ -16,6 +16,10 @@ from urllib.parse import urlparse
 from config import Config
 from process import Process
 from utils import prompt_confirmation
+try:
+    from daemon.task_store import TaskStore
+except ModuleNotFoundError:
+    from ptmanager.modules.daemon.task_store import TaskStore
 
 from ptlibs.ptprinthelper import get_colored_text
 
@@ -171,6 +175,53 @@ class ProjectManager:
             print(" ")
             self.list_projects()
 
+    def list_project_processes(self, project_id: int) -> None:
+        """Lists running tasks for a project and checks if their PIDs are alive."""
+        project = self.config.get_project(project_id)
+        task_store = self._get_task_store(project)
+
+        daemon_pid = project.get("pid")
+        daemon_status = "running" if daemon_pid and Process(daemon_pid).is_running() else "-"
+        tasks = [task for task in task_store.load_tasks() if task.get("status") == "running"]
+
+        print(f"Project: {project.get('project_name', '-')}")
+        print(f"Manager PID: {daemon_pid or '-'} ({daemon_status})")
+        print("")
+
+        if not tasks:
+            ptprinthelper.ptprint("No running project processes found", "TITLE", condition=True, colortext=False, clear_to_eol=True)
+            return
+
+        print(f"{'GUID':<40}{'PID':<12}Process")
+        print("-" * 60)
+        for task in tasks:
+            pid = task.get("pid")
+            process_status = "running" if Process(pid).is_running() else "-"
+            print(f"{task.get('guid', '-'):<40}{str(pid or '-'):<12}{process_status}")
+
+    def kill_project_process(self, project_id: int, guid: str) -> None:
+        """Terminates a running task process. Daemon finalizes the task result."""
+        project = self.config.get_project(project_id)
+        daemon_pid = project.get("pid")
+        if not daemon_pid or not Process(daemon_pid).is_running():
+            self.ptjsonlib.end_error("Project manager is not running. Cannot send task error to AS.", self.use_json)
+
+        task_store = self._get_task_store(project)
+        matching_task = None
+        for task in task_store.load_tasks():
+            if task.get("guid") == guid:
+                matching_task = task
+                break
+
+        if not matching_task:
+            self.ptjsonlib.end_error(f"Task '{guid}' does not exist", self.use_json)
+        if matching_task.get("status") != "running" or not matching_task.get("pid"):
+            self.ptjsonlib.end_error(f"Task '{guid}' is not running", self.use_json)
+        if not Process(matching_task["pid"]).kill():
+            self.ptjsonlib.end_error(f"Task '{guid}' process is not running", self.use_json)
+
+        ptprinthelper.ptprint(f"Terminated task {guid} (PID: {matching_task['pid']})", "OK", condition=True, colortext=False, clear_to_eol=True)
+        ptprinthelper.ptprint("Daemon will free the worker thread and send an error result to AS.", "TITLE", condition=True, colortext=False, clear_to_eol=True)
 
     def list_projects(self) -> None:
         """Lists all registered projects."""
@@ -258,3 +309,7 @@ class ProjectManager:
             return new_url
         else:
             return self.ptjsonlib.end_error("--target is not a valid URL.", self.use_json)
+
+    def _get_task_store(self, project: dict) -> TaskStore:
+        project_dir = os.path.join(self.config.get_path(), "projects", project["AS-ID"])
+        return TaskStore(os.path.join(project_dir, "tasks.json"))
