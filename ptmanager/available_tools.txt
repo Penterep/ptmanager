@@ -31,3 +31,4 @@ ptsrvtester
 ptuploader
 ptodnes
 pt403bypass
+ptcontenttype
