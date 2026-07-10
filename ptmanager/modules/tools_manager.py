@@ -98,8 +98,9 @@ class ToolsManager:
         """
         Returns a mapping of installed tool names to their version strings using `pip show`.
 
-        This method performs a single `pip show` call with multiple tool names to efficiently
-        determine which tools are currently installed in the environment and retrieve their versions.
+        This method runs pip through the current Python interpreter so version detection always
+        targets the same virtual environment as ptmanager, even when the venv is not activated
+        in the caller's PATH.
 
         Args:
             tool_names (list[str]): List of tool names to check (as registered in PyPI / pip).
@@ -113,7 +114,7 @@ class ToolsManager:
 
         try:
             result = subprocess.run(
-                ["pip", "show", *tool_names],
+                [sys.executable, "-m", "pip", "show", *tool_names],
                 stdout=subprocess.PIPE,
                 stderr=subprocess.DEVNULL,
                 text=True,
@@ -452,7 +453,7 @@ class ToolsManager:
             if self._is_penterep_venv:
                 try:
                     # Register tool launcher
-                    subprocess.run(["/usr/local/bin/register-tools", tool_name], check=True)
+                    subprocess.run(["/usr/bin/register-tools", tool_name], check=True)
                 except Exception:
                     pass
         else:
