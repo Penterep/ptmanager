@@ -18,6 +18,7 @@ along with ptmanager.  If not, see <https://www.gnu.org/licenses/>.
 
 import argparse
 import os
+import subprocess
 import sys; sys.path.extend([__file__.rsplit("/", 1)[0], os.path.join(__file__.rsplit("/", 1)[0], "modules")])
 import threading
 
@@ -98,6 +99,8 @@ class PtManager:
         Args:
             args: Parsed command-line arguments namespace.
         """
+        elevate_tool_actions(args)
+
         for action, tools in (
             ("install", args.tools_install),
             ("update", args.tools_update),
@@ -173,6 +176,30 @@ def handle_tools_args(args):
             setattr(args, attr, ["all"])
     return args
 
+
+def elevate_tool_actions(args) -> None:
+    """Re-run Penterep venv tool changes through sudo when required."""
+    tool_action_requested = any(
+        getattr(args, action) is not None
+        for action in ("tools_install", "tools_update", "tools_delete")
+    )
+    is_penterep_venv = os.path.realpath(sys.prefix) == os.path.realpath("/opt/penterep-tools/penterep-tools")
+
+    if tool_action_requested and is_penterep_venv and os.geteuid() != 0:
+        sudo = "/usr/bin/sudo"
+        if not os.path.isfile(sudo):
+            raise SystemExit("sudo is required for tool installation, update, and removal.")
+
+        prompt_expected = subprocess.run(
+            [sudo, "-n", "-v"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+        ).returncode != 0
+        if prompt_expected:
+            sys.stdout.write("\033[s")
+            sys.stdout.flush()
+        clear_prompt = "PTMANAGER_CLEAR_SUDO_PROMPT=1" if prompt_expected else "PTMANAGER_CLEAR_SUDO_PROMPT=0"
+        os.execv(sudo, ["sudo", "/usr/bin/env", "PTMANAGER_SKIP_BANNER=1", clear_prompt, sys.executable, *sys.argv])
+
+
 def parse_args():
     parser = argparse.ArgumentParser(add_help=False, usage=f"{SCRIPTNAME}.py <options>")
     parser.add_argument("-p",    "--proxy",           type=str)
@@ -210,6 +237,9 @@ def parse_args():
         sys.exit(0)
 
     args = parser.parse_args()
+    if os.environ.get("PTMANAGER_CLEAR_SUDO_PROMPT") == "1":
+        sys.stdout.write("\033[u\033[J")
+        sys.stdout.flush()
     args.proxy = {"http": args.proxy, "https": args.proxy} if args.proxy else None
 
     project_actions_count = sum(int(bool(action)) for action in (
@@ -223,7 +253,8 @@ def parse_args():
     if project_actions_count > 1:
         ptjsonlib.PtJsonLib().end_error("Cannot combine project actions together", True)
 
-    ptprinthelper.print_banner(SCRIPTNAME, __version__, False, 0)
+    if os.environ.get("PTMANAGER_SKIP_BANNER") != "1":
+        ptprinthelper.print_banner(SCRIPTNAME, __version__, False, 0)
     return args
 
 
