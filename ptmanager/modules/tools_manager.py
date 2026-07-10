@@ -434,6 +434,7 @@ class ToolsManager:
                 status_map[tool] = "Cannot be deleted from ptmanager"
             elif tool in installed_versions and tool not in final_installed_versions:
                 status_map[tool] = "Uninstall: OK"
+                self.run_hook(tool, "unregister")
                 self.run_hook(tool, "uninstall")
                 
             elif tool not in installed_versions:
@@ -447,13 +448,15 @@ class ToolsManager:
 
     def run_hook(self, tool_name: str, action: str):
         """
-        action: "install" or "uninstall", "register
+        action: "install", "uninstall", "register", or "unregister"
         """
-        if action == "register":
+        if action in ("register", "unregister"):
             if self._is_penterep_venv:
                 try:
-                    # Register tool launcher
-                    subprocess.run(["/usr/bin/register-tools", tool_name], check=True)
+                    command = ["/usr/lib/penterep-tools/register-tools", tool_name]
+                    if action == "unregister":
+                        command = ["/usr/lib/penterep-tools/register-tools", "--remove", tool_name]
+                    subprocess.run(command, check=True)
                 except Exception:
                     pass
         else:
