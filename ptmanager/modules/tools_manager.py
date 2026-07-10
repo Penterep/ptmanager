@@ -342,10 +342,10 @@ class ToolsManager:
         rows_count = len(self.script_list) + 2
         installed_versions = self._get_installed_versions_map(valid_tools)
         latest_versions = {tool["name"]: tool.get("version", "") for tool in self.script_list}
+        all_tools_requested = "all" in (self.args.tools_update or [])
 
         status_map = {}
         tools_to_update = []
-        tools_not_installed = []
 
         # Classify tools by installed/not installed and version status
         for tool in valid_tools:
@@ -353,10 +353,9 @@ class ToolsManager:
             installed_version = installed_versions.get(tool)
 
             if installed_version is None:
-                status_map[tool] = "Not installed — please install first"
-                tools_not_installed.append(tool)
+                status_map[tool] = "" if all_tools_requested else "Not installed"
             elif installed_version == latest_version:
-                status_map[tool] = "Already up-to-date"
+                status_map[tool] = "Up to date"
             else:
                 status_map[tool] = "Updating..."
                 tools_to_update.append(tool)
@@ -378,9 +377,9 @@ class ToolsManager:
             final_version = final_installed_versions.get(tool, "")
             latest_version = latest_versions.get(tool, "")
             if final_version == latest_version:
-                status_map[tool] = "Updated successfully"
+                status_map[tool] = "Updated"
             else:
-                status_map[tool] = "Update failed or partial"
+                status_map[tool] = "Update failed"
 
         print(f"\033[{rows_count}A", end="")
         self._print_tools_table(tools=[tool["name"] for tool in self.script_list], status_map=status_map)
@@ -402,6 +401,7 @@ class ToolsManager:
         """
         rows_count = len(self.script_list) + 2
         installed_versions = self._get_installed_versions_map(valid_tools)
+        all_tools_requested = "all" in (self.args.tools_delete or [])
 
         filtered_tools = [
             t for t in valid_tools
@@ -413,7 +413,7 @@ class ToolsManager:
             if tool in ("ptlibs", "ptmanager"):
                 status_map[tool] = "Cannot be deleted from ptmanager"
             elif tool not in installed_versions:
-                status_map[tool] = "Already uninstalled"
+                status_map[tool] = "" if all_tools_requested else "Not installed"
             elif tool in filtered_tools:
                 status_map[tool] = "Removing..."
             else:
@@ -433,12 +433,12 @@ class ToolsManager:
             if tool in ("ptlibs", "ptmanager"):
                 status_map[tool] = "Cannot be deleted from ptmanager"
             elif tool in installed_versions and tool not in final_installed_versions:
-                status_map[tool] = "Uninstall: OK"
+                status_map[tool] = "Removed"
                 self.run_hook(tool, "unregister")
                 self.run_hook(tool, "uninstall")
                 
             elif tool not in installed_versions:
-                status_map[tool] = "Already uninstalled"
+                status_map[tool] = "" if all_tools_requested else "Not installed"
             else:
                 status_map[tool] = "Uninstall failed"
 

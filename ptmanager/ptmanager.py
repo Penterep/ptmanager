@@ -194,10 +194,19 @@ def elevate_tool_actions(args) -> None:
             [sudo, "-n", "-v"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
         ).returncode != 0
         if prompt_expected:
-            sys.stdout.write("\033[s")
-            sys.stdout.flush()
-        clear_prompt = "PTMANAGER_CLEAR_SUDO_PROMPT=1" if prompt_expected else "PTMANAGER_CLEAR_SUDO_PROMPT=0"
-        os.execv(sudo, ["sudo", "/usr/bin/env", "PTMANAGER_SKIP_BANNER=1", clear_prompt, sys.executable, *sys.argv])
+            clear_prompt = sys.stdout.isatty()
+            if clear_prompt:
+                sys.stdout.write("\033[s")
+                sys.stdout.flush()
+
+            if subprocess.run([sudo, "-v"]).returncode != 0:
+                raise SystemExit(1)
+
+            if clear_prompt:
+                sys.stdout.write("\033[u\033[J")
+                sys.stdout.flush()
+
+        os.execv(sudo, ["sudo", "/usr/bin/env", "PTMANAGER_SKIP_BANNER=1", sys.executable, *sys.argv])
 
 
 def parse_args():
@@ -237,9 +246,6 @@ def parse_args():
         sys.exit(0)
 
     args = parser.parse_args()
-    if os.environ.get("PTMANAGER_CLEAR_SUDO_PROMPT") == "1":
-        sys.stdout.write("\033[u\033[J")
-        sys.stdout.flush()
     args.proxy = {"http": args.proxy, "https": args.proxy} if args.proxy else None
 
     project_actions_count = sum(int(bool(action)) for action in (
