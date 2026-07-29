@@ -35,3 +35,4 @@ ptcontenttype
 ptguess
 ptrepo
 ptaccount
+ptmultirequest
