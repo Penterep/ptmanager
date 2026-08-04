@@ -275,6 +275,7 @@ class ToolsManager:
 
         tools_installed = [t for t in valid_tools if t in installed_versions]
         tools_not_installed = [t for t in valid_tools if t not in installed_versions]
+        skipped_tools = set()
 
         status_map = {}
         for tool in valid_tools:
@@ -282,6 +283,12 @@ class ToolsManager:
                 status_map[tool] = "Already installed"
             else:
                 status_map[tool] = "Installing..."
+
+        # ptsrvtester depends on Rust toolchain being available in PATH.
+        if "ptsrvtester" in tools_not_installed and shutil.which("rustc") is None:
+            status_map["ptsrvtester"] = "Missing rustc (skipped)"
+            tools_not_installed = [t for t in tools_not_installed if t != "ptsrvtester"]
+            skipped_tools.add("ptsrvtester")
 
         if not self.args.debug:
             self._print_tools_table(tools=[tool["name"] for tool in self.script_list], status_map=status_map)
@@ -312,6 +319,8 @@ class ToolsManager:
         final_installed_versions = self._get_installed_versions_map(valid_tools)
 
         for tool in valid_tools:
+            if tool in skipped_tools:
+                continue
             if tool in installed_versions and tool in final_installed_versions:
                 status_map[tool] = "Already installed"
             elif tool in final_installed_versions:
@@ -346,6 +355,7 @@ class ToolsManager:
 
         status_map = {}
         tools_to_update = []
+        skipped_tools = set()
 
         # Classify tools by installed/not installed and version status
         for tool in valid_tools:
@@ -359,6 +369,12 @@ class ToolsManager:
             else:
                 status_map[tool] = "Updating..."
                 tools_to_update.append(tool)
+
+        # ptsrvtester update may require Rust toolchain in PATH.
+        if "ptsrvtester" in tools_to_update and shutil.which("rustc") is None:
+            status_map["ptsrvtester"] = "Missing rustc (skipped)"
+            tools_to_update = [t for t in tools_to_update if t != "ptsrvtester"]
+            skipped_tools.add("ptsrvtester")
 
         self._print_tools_table(tools=[tool["name"] for tool in self.script_list], status_map=status_map)
 
@@ -376,6 +392,8 @@ class ToolsManager:
         for tool in tools_to_update:
             final_version = final_installed_versions.get(tool, "")
             latest_version = latest_versions.get(tool, "")
+            if tool in skipped_tools:
+                continue
             if final_version == latest_version:
                 status_map[tool] = "Updated"
             else:
