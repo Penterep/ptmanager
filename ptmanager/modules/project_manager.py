@@ -28,7 +28,10 @@ class ProjectManager:
         self.ptjsonlib: object   = ptjsonlib
         self.use_json: bool      = use_json
         self.no_ssl_verify: bool = no_ssl_verify
-        self.proxies: dict       = {"http": proxies, "https": proxies}
+        if isinstance(proxies, dict):
+            self.proxies: dict = proxies
+        else:
+            self.proxies: dict = {"http": proxies, "https": proxies}
         self.config: object      = config
         self.debug: bool         = debug
         #TODO: Implementovat přepínač pro insecure SSL a upravit všechny requesty, aby s tímto přepínačem spolupracovaly
@@ -110,7 +113,7 @@ class ProjectManager:
             self.config.set_project_port(project_id, 10000 + project_id)
 
         except Exception as e:
-            self.ptjsonlib.end_error(e, self.use_json)
+            self.ptjsonlib.end_error(str(e), self.use_json)
 
         self.config.set_project_pid(project_id, process.pid)
         ptprinthelper.ptprint(f"Started project {self.config.get_project(project_id).get('project_name', '')} (PID: {self.config.get_pid(project_id)})\n", "TITLE", condition=True, colortext=False, clear_to_eol=True)
@@ -135,7 +138,7 @@ class ProjectManager:
                 self.config.set_project_port(project_id, None)
             except Exception as e:
                 self.config.set_project_port(project_id, None)
-                self.ptjsonlib.end_error(e, self.use_json)
+                self.ptjsonlib.end_error(str(e), self.use_json)
         else:
             self.list_projects()
             print(" ")
