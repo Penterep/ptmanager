@@ -270,6 +270,7 @@ class ProjectManager:
                     self.config.set_project_pid(index - 1, None)
                     self.config.set_project_port(index - 1, None)
                     project["pid"] = None
+                    pid = None
 
             if pid:
                 status = "running"
