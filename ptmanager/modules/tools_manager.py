@@ -346,8 +346,12 @@ class ToolsManager:
             - Checks installed and not installed tools.
             - Compares installed versions to latest versions.
             - Only runs upgrade on tools that are out-of-date.
+            - Upgrades ptmanager separately before any other tools.
             - Updates and displays status accordingly.
         """
+        if self._check_if_tool_exists("ptmanager", self.script_list):
+            valid_tools = list(dict.fromkeys(["ptmanager", *valid_tools]))
+
         rows_count = len(self.script_list) + 2
         installed_versions = self._get_installed_versions_map(valid_tools)
         latest_versions = {tool["name"]: tool.get("version", "") for tool in self.script_list}
@@ -382,8 +386,13 @@ class ToolsManager:
             return  # No tools need updating
 
         # Run pip upgrade only on tools that need it
-        pip_args = [sys.executable, "-m", "pip", "install", "--upgrade"] + tools_to_update
-        subprocess.run(pip_args, capture_output=True, text=True)
+        pip_args = [sys.executable, "-m", "pip", "install", "--upgrade"]
+        if "ptmanager" in tools_to_update:
+            subprocess.run(pip_args + ["ptmanager"], capture_output=True, text=True)
+
+        other_tools = [tool for tool in tools_to_update if tool != "ptmanager"]
+        if other_tools:
+            subprocess.run(pip_args + other_tools, capture_output=True, text=True)
 
         # Refresh installed versions after upgrade
         final_installed_versions = self._get_installed_versions_map(valid_tools)
