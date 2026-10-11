@@ -50,6 +50,11 @@ Tools options:
    -tu  --tools-update   <tool>  Update <tool>
    -td  --tools-delete   <tool>  Delete <tool>
 
+Placeholders:
+   --set-mail       <server> <login> <password>  Set test mail credentials
+   --set-www        <url>                        Set test WWW server URL
+   --set-interface  <name>                       Set network interface
+
 Options:
    -T   --target         <target>   Set target server
    -a   --auth           <auth>     Set authorization code

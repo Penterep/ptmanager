@@ -19,6 +19,7 @@ import queue
 from queue import Queue # Thread safe
 
 from task_store import TaskStore
+from placeholders import PlaceholderError, expand_command
 
 class Daemon:
     def __init__(self, args):
@@ -295,19 +296,43 @@ class Daemon:
             task (dict): Task dictionary containing at least "guid" and "command".
             thread_no (int): Identifier of the worker thread handling this task.
         """
+        try:
+            self._process_task(task)
+        finally:
+            self.free_threads.append(thread_no)
 
+    def _process_task(self, task: dict) -> None:
         guid = task["guid"]
-        command = task["command"]
+        try:
+            command_args = expand_command(task["command"], self.config.get_placeholders())
+        except (OSError, ValueError) as error:
+            message = str(error) if isinstance(error, PlaceholderError) else "Cannot read placeholder configuration."
+            self.task_store.append_task({
+                "guid": guid, "pid": None, "timeStamp": time.time(),
+                "status": "error", "results": {}, "message": message,
+            })
+            return
         temp_path = os.path.join(self.config.get_temp_path(), guid) # /home/.ptmanager/temp/<guid>
 
         # Run external command (automat) and save result to temp_path
-        with open(temp_path, "w+") as output_file:
-            process = subprocess.Popen(
-                command.split(),
-                stdout=output_file,
-                stderr=output_file,
-                text=True
-            )
+        try:
+            with open(temp_path, "w+") as output_file:
+                process = subprocess.Popen(
+                    command_args,
+                    stdout=output_file,
+                    stderr=output_file,
+                    text=True
+                )
+        except OSError:
+            self.task_store.append_task({
+                "guid": guid, "pid": None, "timeStamp": time.time(),
+                "status": "error", "results": {}, "message": "Cannot start task command.",
+            })
+            try:
+                os.remove(temp_path)
+            except OSError:
+                pass
+            return
 
         # Create running task record
         running_task = {
@@ -336,6 +361,8 @@ class Daemon:
                 with open(temp_path, "r") as output_file:
                     output_content = output_file.read()
                     parsed_result = json.loads(output_content)
+                    if not isinstance(parsed_result, dict):
+                        raise ValueError("Tool result must be a JSON object.")
             except Exception:
                 parsed_result = {}
                 output_content = output_content if output_content else "Automat returned empty result."
@@ -355,10 +382,6 @@ class Daemon:
             os.remove(temp_path)
         except OSError:
             pass
-
-        # Mark thread as free
-        self.free_threads.append(thread_no)
-
 
     def get_task_from_server(self, target=None, auth=None) -> dict | None:
         """Retrieve a new task from the application server."""

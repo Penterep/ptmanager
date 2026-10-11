@@ -28,6 +28,7 @@ from modules.project_manager import ProjectManager
 from modules.tools_manager import ToolsManager
 from modules.utils import temp_manager
 from modules.utils import InputBlocker
+from modules.placeholders import PlaceholderError, placeholder_arguments
 
 
 import requests
@@ -47,6 +48,11 @@ class PtManager:
 
     def run(self, args: argparse.Namespace) -> None:
         """Main method"""
+        placeholder_values = get_placeholder_values(args)
+        if placeholder_values:
+            self._set_placeholders(placeholder_values)
+            return
+
         if args.init or not self.config.get_satid():
             self.config.register_uid()
 
@@ -84,10 +90,21 @@ class PtManager:
         elif args.tools_install or args.tools_update or args.tools_delete:
             self._handle_tool_action(args)
 
+        elif args.init:
+            pass
+
         else:
             self.ptjsonlib.end_error("Bad argument combination", self.use_json)
 
         self.config.save()
+
+    def _set_placeholders(self, values: dict) -> None:
+        try:
+            self.config.set_placeholders(values)
+        except (OSError, ValueError):
+            self.ptjsonlib.end_error("Cannot save placeholder configuration.", self.use_json)
+            return
+        print("Saved placeholders:", ", ".join(values))
 
     def _handle_tool_action(self, args) -> None:
         """
@@ -155,6 +172,12 @@ def get_help() -> list[dict[str,any]]:
             ["-td",  "--tools-delete",           "<tool>",         "Delete <tool>"],
             ]
         },
+        {"Placeholders": [
+            ["", "--set-mail", "<server> <login> <password>", "Set test mail credentials"],
+            ["", "--set-www", "<url>", "Set test WWW server URL"],
+            ["", "--set-interface", "<name>", "Set network interface"],
+            ]
+        },
         {"options": [
             ["-T",   "--target",                 "<target>",         "Set target server"],
             ["-a",   "--auth",                   "<auth>",           "Set authorization code"],
@@ -175,6 +198,17 @@ def handle_tools_args(args):
         if getattr(args, attr, None) == []:
             setattr(args, attr, ["all"])
     return args
+
+
+def get_placeholder_values(args) -> dict:
+    values = {}
+    if args.set_mail is not None:
+        values["mail"] = dict(zip(("server", "login", "password"), args.set_mail))
+    if args.set_www is not None:
+        values["www"] = {"url": args.set_www}
+    if args.set_interface is not None:
+        values["interface"] = args.set_interface
+    return values
 
 
 def elevate_tool_actions(args) -> None:
@@ -229,6 +263,10 @@ def parse_args():
     parser.add_argument("-tu", "-ut",  "--tools-update",    type=str, nargs="*")
     parser.add_argument("-td", "-dt",  "--tools-delete",    type=str, nargs="*")
 
+    parser.add_argument("--set-mail", type=str, nargs=3, metavar=("SERVER", "LOGIN", "PASSWORD"))
+    parser.add_argument("--set-www", type=str, metavar="URL")
+    parser.add_argument("--set-interface", type=str, metavar="NAME")
+
     parser.add_argument("-T",    "--target",          type=str)
     parser.add_argument("-a",    "--auth",            type=str)
     parser.add_argument("-t",    "--threads",         type=int, default=20)
@@ -247,6 +285,22 @@ def parse_args():
 
     args = parser.parse_args()
     args.proxy = {"http": args.proxy, "https": args.proxy} if args.proxy else None
+
+    placeholder_values = get_placeholder_values(args)
+    if placeholder_values:
+        other_action_requested = any((
+            args.init, args.project_new, args.project_list,
+            args.project_start, args.project_end, args.project_reset,
+            args.project_delete, args.project_process_list, args.project_process_kill,
+            args.tools_list, args.temp_clean,
+        )) or any(value is not None for value in (args.tools_install, args.tools_update, args.tools_delete))
+        if other_action_requested:
+            parser.error("Cannot combine placeholder configuration with other actions.")
+        try:
+            for name, value in placeholder_values.items():
+                placeholder_arguments(name, value)
+        except PlaceholderError as e:
+            parser.error(str(e))
 
     project_actions_count = sum(int(bool(action)) for action in (
         args.project_start,
