@@ -21,6 +21,80 @@ from queue import Queue # Thread safe
 from task_store import TaskStore
 from placeholders import PlaceholderError, expand_command
 
+RESULT_DELIVERED = "delivered"
+RESULT_RETRY = "retry"
+RESULT_REJECTED = "rejected"
+RESULT_DISCARDED = "discarded"
+
+RETRYABLE_STATUS_CODES = {401, 403, 408, 425, 429}
+REJECTED_PAYLOAD_STATUS_CODES = {400, 413, 422}
+DELIVERY_KEYS = ("delivery_attempts", "next_delivery_at", "degraded")
+
+MAX_DELIVERY_ATTEMPTS = 300
+BASE_RETRY_DELAY = 5
+MAX_RETRY_DELAY = 300
+MAX_RETRY_AFTER = 3600
+REQUEST_TIMEOUT = (10, 120)
+UNDELIVERED_RESULTS_FILE = "undelivered.json"
+
+
+def classify_result_response(response) -> str:
+    if response is None:
+        return RESULT_RETRY
+
+    status_code = response.status_code
+    if 200 <= status_code < 300:
+        return RESULT_DELIVERED
+    if status_code < 400 or status_code >= 500 or status_code in RETRYABLE_STATUS_CODES:
+        return RESULT_RETRY
+    if status_code in REJECTED_PAYLOAD_STATUS_CODES:
+        return RESULT_REJECTED
+    return RESULT_DISCARDED
+
+
+def retry_delay(attempts, response) -> float:
+    retry_after = None if response is None else response.headers.get("Retry-After")
+    if retry_after is not None:
+        try:
+            return min(max(float(retry_after), 0), MAX_RETRY_AFTER)
+        except ValueError:
+            pass
+    return min(BASE_RETRY_DELAY * 2 ** (attempts - 1), MAX_RETRY_DELAY)
+
+
+def rejection_reason(response) -> str:
+    if response is None:
+        return "No response from the platform."
+    try:
+        body = response.json()
+    except ValueError:
+        return response.text[:500] if response.text else ""
+    if not isinstance(body, dict):
+        return ""
+    reason = body.get("message") or ""
+    errors = body.get("errors")
+    if isinstance(errors, dict) and errors:
+        details = "; ".join(f"{field}: {', '.join(map(str, messages)) if isinstance(messages, list) else messages}" for field, messages in errors.items())
+        reason = f"{reason} {details}".strip()
+    return reason
+
+
+def result_payload(task_dict) -> dict:
+    return {key: value for key, value in task_dict.items() if key not in DELIVERY_KEYS}
+
+
+def degraded_result(task_dict, response) -> dict:
+    degraded = {key: value for key, value in copy.deepcopy(task_dict).items() if key not in DELIVERY_KEYS}
+    status_code = response.status_code
+    reason = rejection_reason(response)
+    degraded["results"] = None
+    degraded["data"] = None if status_code == 413 else copy.deepcopy(task_dict.get("results"))
+    degraded["status"] = "failed"
+    degraded["message"] = f"Results were rejected by the platform (status code {status_code}). {reason}".strip()
+    degraded["degraded"] = True
+    return degraded
+
+
 class Daemon:
     def __init__(self, args):
         self.config: Config          = Config(config_path=os.path.join(os.path.expanduser("~"), ".penterep", "ptmanager/"))
@@ -120,49 +194,59 @@ class Daemon:
 
     def send_results_to_server(self, target) -> None:
         """Send local results to application server."""
-        finished_tasks = self.task_store.pop_finished_tasks()
+        for task_dict in self.task_store.pop_finished_tasks(time.time()):
+            self.deliver_result(task_dict)
 
-        for task_dict in finished_tasks:
-            # Prepare task
-            task_dict["satid"] = self.satid
-            task_dict.pop("pid", None)
-            task_dict.pop("timeStamp", None)
+    def deliver_result(self, task_dict) -> None:
+        task_dict["satid"] = self.satid
+        task_dict.pop("pid", None)
+        task_dict.pop("timeStamp", None)
 
-            # Send to API
-            response = self.send_to_api(end_point="result", data=task_dict)
-            if response is None:
-                self.task_store.append_task(task_dict)
-                continue
+        response = self.send_to_api(end_point="result", data=result_payload(task_dict))
+        outcome = classify_result_response(response)
 
-            # If send fails with 422 or 500, create a new modified copy and resend
-            if response.status_code in (422, 500):
-                # Deep copy to preserve original task_dict
-                modified_task = copy.deepcopy(task_dict)
-                modified_task["results"] = None
-                modified_task["data"] = copy.deepcopy(task_dict.get("results")) # Failed results to data key.
+        if outcome == RESULT_REJECTED and not task_dict.get("degraded"):
+            self.discard_result(task_dict, response)
+            task_dict = degraded_result(task_dict, response)
+            response = self.send_to_api(end_point="result", data=result_payload(task_dict))
+            outcome = classify_result_response(response)
 
-                # Set status and message
-                modified_task["status"] = "failed"
-                modified_task["message"] = f"Send to result failed because of status code {response.status_code}"
+        if outcome == RESULT_DELIVERED:
+            return
 
-                # Resend modified task
-                response = self.send_to_api(end_point="result", data=modified_task)
-                # If still fails, re-append original task_dict (without modifications)
-                if response is None or response.status_code != 200:
-                    self.task_store.append_task(task_dict)
-                    continue
+        if outcome == RESULT_RETRY:
+            self.schedule_result_retry(task_dict, response)
+            return
 
-            # If other failure, just re-append original
-            elif response.status_code != 200:
-                self.task_store.append_task(task_dict)
+        self.discard_result(task_dict, response)
 
+    def schedule_result_retry(self, task_dict, response) -> None:
+        attempts = task_dict.get("delivery_attempts", 0) + 1
+        if attempts >= MAX_DELIVERY_ATTEMPTS:
+            self.discard_result(task_dict, response)
+            return
+
+        task_dict["delivery_attempts"] = attempts
+        task_dict["next_delivery_at"] = time.time() + retry_delay(attempts, response)
+        self.task_store.append_task(task_dict)
+
+    def discard_result(self, task_dict, response) -> None:
+        status_code = None if response is None else response.status_code
+        print(f"Result of task {task_dict.get('guid')} was not delivered (status code {status_code}): {rejection_reason(response)}")
+        undelivered = TaskStore(os.path.join(os.path.dirname(self.task_store.file_path), UNDELIVERED_RESULTS_FILE))
+        undelivered.append_task({
+            **result_payload(task_dict),
+            "rejected_status_code": status_code,
+            "rejected_reason": rejection_reason(response),
+            "rejected_at": time.time(),
+        })
 
     def send_to_api(self, end_point, data) -> requests.Response:
         """Send data to the API."""
         target = self.target + "api/v1/sat/" + end_point
         try:
             print("data to send:", json.dumps(data))
-            response = requests.post(target, data=json.dumps(data), verify=self.no_ssl_verify, headers={"Content-Type": "application/json", "Accept": "application/json"}, proxies=self.proxies, allow_redirects=False)
+            response = requests.post(target, data=json.dumps(data), verify=self.no_ssl_verify, headers={"Content-Type": "application/json", "Accept": "application/json"}, proxies=self.proxies, allow_redirects=False, timeout=REQUEST_TIMEOUT)
             if response.status_code != 200:
                 print(f"Error sending to {'api/v1/sat/' + end_point}: Expected status code is 200, got {response.status_code}")
             return response
