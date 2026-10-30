@@ -68,7 +68,9 @@ Options:
 
 ## Dependencies
 ```
+httpx (with HTTP/2 support)
 ptlibs
+requests
 ```
 
 ## License

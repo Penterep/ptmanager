@@ -9,7 +9,8 @@ import threading
 import time
 import pathlib
 import urllib
-import requests
+import httpx
+import urllib3
 
 from process import Process
 from config import Config
@@ -44,6 +45,7 @@ class Daemon:
         self.free_threads            = [i for i in range(args.threads)]
         self.threads_list            = ["" for _ in range(args.threads)]
         self.lock                    = threading.Lock() # Tasks lock
+        self.timeout                 = 30.0
         
         #self.config.set_project_port(args.project_id, self.socket_port)
 
@@ -157,16 +159,38 @@ class Daemon:
                 self.task_store.append_task(task_dict)
 
 
-    def send_to_api(self, end_point, data) -> requests.Response:
+    def _get_proxy(self):
+        if isinstance(self.proxies, dict):
+            return self.proxies.get("https") or self.proxies.get("http")
+        return self.proxies
+
+    def _post_json(self, url: str, payload: dict, headers: dict) -> httpx.Response:
+        client_args = {
+            "http2": True,
+            "verify": self.no_ssl_verify,
+            "follow_redirects": False,
+            "timeout": self.timeout,
+        }
+        proxy = self._get_proxy()
+        if proxy:
+            client_args["proxy"] = proxy
+        with httpx.Client(**client_args) as client:
+            return client.post(url, content=json.dumps(payload), headers=headers)
+
+    def send_to_api(self, end_point, data) -> httpx.Response | None:
         """Send data to the API."""
         target = self.target + "api/v1/sat/" + end_point
         try:
             print("data to send:", json.dumps(data))
-            response = requests.post(target, data=json.dumps(data), verify=self.no_ssl_verify, headers={"Content-Type": "application/json", "Accept": "application/json"}, proxies=self.proxies, allow_redirects=False)
+            response = self._post_json(
+                url=target,
+                payload=data,
+                headers={"Content-Type": "application/json", "Accept": "application/json"},
+            )
             if response.status_code != 200:
                 print(f"Error sending to {'api/v1/sat/' + end_point}: Expected status code is 200, got {response.status_code}")
             return response
-        except requests.RequestException as e:
+        except httpx.HTTPError as e:
             print(f"Error sending to {'api/v1/sat/' + end_point}: {e}")
         except TypeError:
             print(f"Data to send cannot be serialized to JSON (data: {data})")
@@ -389,13 +413,10 @@ class Daemon:
         try:
             headers = {"Content-Type": "application/json"}
             payload = {"satid": self.satid}
-            response = requests.post(
-                tasks_url,
-                data=json.dumps(payload),
+            response = self._post_json(
+                url=tasks_url,
+                payload=payload,
                 headers=headers,
-                proxies=self.proxies,
-                verify=self.no_ssl_verify,
-                allow_redirects=False
             )
 
             # Return if status != 200
@@ -438,5 +459,5 @@ def parse_args():
 
 if __name__ == "__main__":
     args = parse_args()
-    requests.packages.urllib3.disable_warnings()
+    urllib3.disable_warnings()
     daemon = Daemon(args)
