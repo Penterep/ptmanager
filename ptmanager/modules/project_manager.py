@@ -8,7 +8,7 @@ import urllib
 import uuid
 import json
 
-import requests
+import httpx
 
 from ptlibs import ptjsonlib, ptprinthelper
 from urllib.parse import urlparse
@@ -34,7 +34,26 @@ class ProjectManager:
             self.proxies: dict = {"http": proxies, "https": proxies}
         self.config: object      = config
         self.debug: bool         = debug
+        self.timeout: float      = 30.0
         #TODO: Implementovat přepínač pro insecure SSL a upravit všechny requesty, aby s tímto přepínačem spolupracovaly
+
+    def _get_proxy(self):
+        if isinstance(self.proxies, dict):
+            return self.proxies.get("https") or self.proxies.get("http")
+        return self.proxies
+
+    def _post_json(self, url: str, payload: dict, headers: dict) -> httpx.Response:
+        client_args = {
+            "http2": True,
+            "verify": self.no_ssl_verify,
+            "follow_redirects": False,
+            "timeout": self.timeout,
+        }
+        proxy = self._get_proxy()
+        if proxy:
+            client_args["proxy"] = proxy
+        with httpx.Client(**client_args) as client:
+            return client.post(url, content=json.dumps(payload), headers=headers)
 
     def register_project(self, target_url: str, auth_token: str) -> None:
         """Registers new project."""
@@ -50,7 +69,11 @@ class ProjectManager:
 
         ptprinthelper.ptprint(f"Registering new project ...", "TITLE", condition=True, colortext=False, clear_to_eol=True)
         try:
-            response = requests.post(url=self._get_registration_url(target_url), proxies=self.proxies, allow_redirects=False, verify=self.no_ssl_verify, data=json.dumps({"token": auth_token, "satid": self.config.get_satid()}), headers={"Content-Type": "application/json"})
+            response = self._post_json(
+                url=self._get_registration_url(target_url),
+                payload={"token": auth_token, "satid": self.config.get_satid()},
+                headers={"Content-Type": "application/json"},
+            )
 
             if response.status_code == 404:
                 self.ptjsonlib.end_error("Server not found (404). No server matches the token provided via --auth/-a.", self.use_json)
@@ -58,7 +81,7 @@ class ProjectManager:
             if response.status_code != 200:
                 self.ptjsonlib.end_error(f"Expected status code 200, got {response.status_code}", self.use_json)
 
-        except requests.RequestException:
+        except httpx.HTTPError:
             self.ptjsonlib.end_error("Error communicating with server, check your URL", self.use_json)
 
         try:    
@@ -166,10 +189,14 @@ class ProjectManager:
             ptprinthelper.ptprint(f"Deleting project {self.config.get_project(project_id).get('project_name')} ...", "TITLE", condition=True, colortext=False, clear_to_eol=True)
 
             # Send request to delete from AS
-            response = requests.post(url=url, proxies=self.proxies, verify=self.no_ssl_verify, data=json.dumps({"satid": self.config.get_satid()}), headers={"Content-Type": "application/json"}, allow_redirects=False)
+            response = self._post_json(
+                url=url,
+                payload={"satid": self.config.get_satid()},
+                headers={"Content-Type": "application/json"},
+            )
             self.config.remove_project(project_id)
             ptprinthelper.ptprint(f"Project {project.get('project_name')} deleted succesfully", "TITLE", condition=True, colortext=False, clear_to_eol=True)
-        except (requests.RequestException) as e:
+        except httpx.HTTPError:
             ptprinthelper.ptprint(f"Server is not responding", "ERROR")
             if prompt_confirmation("Cannot delete project from AS. Delete TS from server manualy.\nProject will be deleted locally only. Unpair from AS manually."):
                 self.config.remove_project(project_id)

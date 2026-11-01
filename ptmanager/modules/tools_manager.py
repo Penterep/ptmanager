@@ -284,11 +284,13 @@ class ToolsManager:
             else:
                 status_map[tool] = "Installing..."
 
+        """
         # ptsrvtester depends on Rust toolchain being available in PATH.
         if "ptsrvtester" in tools_not_installed and shutil.which("rustc") is None:
             status_map["ptsrvtester"] = "Missing rustc (skipped)"
             tools_not_installed = [t for t in tools_not_installed if t != "ptsrvtester"]
             skipped_tools.add("ptsrvtester")
+        """
 
         if not self.args.debug:
             self._print_tools_table(tools=[tool["name"] for tool in self.script_list], status_map=status_map)
@@ -374,12 +376,14 @@ class ToolsManager:
                 status_map[tool] = "Updating..."
                 tools_to_update.append(tool)
 
+        """
         # ptsrvtester update may require Rust toolchain in PATH.
         if "ptsrvtester" in tools_to_update and shutil.which("rustc") is None:
             status_map["ptsrvtester"] = "Missing rustc (skipped)"
             tools_to_update = [t for t in tools_to_update if t != "ptsrvtester"]
             skipped_tools.add("ptsrvtester")
-
+        """
+        
         self._print_tools_table(tools=[tool["name"] for tool in self.script_list], status_map=status_map)
 
         if not tools_to_update:

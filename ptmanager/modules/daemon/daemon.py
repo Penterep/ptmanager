@@ -10,6 +10,8 @@ import time
 import pathlib
 import urllib
 import requests
+import httpx
+import urllib3
 
 from process import Process
 from config import Config
@@ -110,6 +112,7 @@ class Daemon:
         self.socket_port: str        = 10000 + args.project_id
         self.socket_address: str     = "127.0.0.1"
         self.proxies: dict           = {"http": args.proxy, "https": args.proxy}
+        self.timeout: tuple[float, float] = REQUEST_TIMEOUT
         self.project_dir: str        = os.path.join(self.config.get_path(), "projects", self.as_id)
 
         self.project_tasks_file: str = os.path.join(self.project_dir, "tasks.json")
@@ -118,6 +121,7 @@ class Daemon:
         self.free_threads            = [i for i in range(args.threads)]
         self.threads_list            = ["" for _ in range(args.threads)]
         self.lock                    = threading.Lock() # Tasks lock
+        self.timeout                 = 30.0
         
         #self.config.set_project_port(args.project_id, self.socket_port)
 
@@ -240,6 +244,24 @@ class Daemon:
             "rejected_reason": rejection_reason(response),
             "rejected_at": time.time(),
         })
+
+    def _get_proxy(self):
+        if isinstance(self.proxies, dict):
+            return self.proxies.get("https") or self.proxies.get("http")
+        return self.proxies
+
+    def _post_json(self, url: str, payload: dict, headers: dict) -> httpx.Response:
+        client_args = {
+            "http2": True,
+            "verify": self.no_ssl_verify,
+            "follow_redirects": False,
+            "timeout": self.timeout,
+        }
+        proxy = self._get_proxy()
+        if proxy:
+            client_args["proxy"] = proxy
+        with httpx.Client(**client_args) as client:
+            return client.post(url, content=json.dumps(payload), headers=headers)
 
     def send_to_api(self, end_point, data) -> requests.Response:
         """Send data to the API."""
@@ -473,13 +495,10 @@ class Daemon:
         try:
             headers = {"Content-Type": "application/json"}
             payload = {"satid": self.satid}
-            response = requests.post(
-                tasks_url,
-                data=json.dumps(payload),
+            response = self._post_json(
+                url=tasks_url,
+                payload=payload,
                 headers=headers,
-                proxies=self.proxies,
-                verify=self.no_ssl_verify,
-                allow_redirects=False
             )
 
             # Return if status != 200
@@ -522,5 +541,5 @@ def parse_args():
 
 if __name__ == "__main__":
     args = parse_args()
-    requests.packages.urllib3.disable_warnings()
+    urllib3.disable_warnings()
     daemon = Daemon(args)
