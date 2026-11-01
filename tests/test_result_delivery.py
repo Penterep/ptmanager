@@ -163,15 +163,40 @@ class ResultDeliveryTests(unittest.TestCase):
         self.assertEqual(sent, [])
         self.assertEqual(len(self.daemon.task_store.load_tasks()), 1)
 
-    def test_requests_use_a_timeout(self):
+    def test_send_to_api_uses_httpx_json_post(self):
         self.daemon.target = "https://as.invalid/"
         self.daemon.no_ssl_verify = True
         self.daemon.proxies = {}
-        with patch.object(daemon_module.requests, "post", return_value=response(200, {})) as post, \
+        mocked_response = response(200, {})
+        with patch.object(self.daemon, "_post_json", return_value=mocked_response) as post_json, \
                 contextlib.redirect_stdout(io.StringIO()):
-            self.daemon.send_to_api("result", {"guid": "task"})
+            returned = self.daemon.send_to_api("result", {"guid": "task"})
 
-        self.assertEqual(post.call_args.kwargs["timeout"], daemon_module.REQUEST_TIMEOUT)
+        self.assertIs(returned, mocked_response)
+        self.assertEqual(post_json.call_args.kwargs["url"], "https://as.invalid/api/v1/sat/result")
+        self.assertEqual(post_json.call_args.kwargs["payload"], {"guid": "task"})
+        self.assertEqual(
+            post_json.call_args.kwargs["headers"],
+            {"Content-Type": "application/json", "Accept": "application/json"},
+        )
+
+    def test_httpx_client_is_created_with_http2_enabled(self):
+        self.daemon.no_ssl_verify = True
+        self.daemon.proxies = {}
+        self.daemon.timeout = 30.0
+        client = Mock()
+        client.post.return_value = response(200, {})
+        context = Mock()
+        context.__enter__ = Mock(return_value=client)
+        context.__exit__ = Mock(return_value=False)
+        with patch.object(daemon_module.httpx, "Client", return_value=context) as client_ctor:
+            self.daemon._post_json(
+                url="https://as.invalid/api/v1/sat/result",
+                payload={"guid": "task"},
+                headers={"Content-Type": "application/json", "Accept": "application/json"},
+            )
+
+        self.assertTrue(client_ctor.call_args.kwargs["http2"])
 
 
 if __name__ == "__main__":

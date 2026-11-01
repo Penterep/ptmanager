@@ -9,7 +9,6 @@ import threading
 import time
 import pathlib
 import urllib
-import requests
 import httpx
 import urllib3
 
@@ -263,16 +262,20 @@ class Daemon:
         with httpx.Client(**client_args) as client:
             return client.post(url, content=json.dumps(payload), headers=headers)
 
-    def send_to_api(self, end_point, data) -> requests.Response:
+    def send_to_api(self, end_point, data) -> httpx.Response | None:
         """Send data to the API."""
         target = self.target + "api/v1/sat/" + end_point
         try:
             print("data to send:", json.dumps(data))
-            response = requests.post(target, data=json.dumps(data), verify=self.no_ssl_verify, headers={"Content-Type": "application/json", "Accept": "application/json"}, proxies=self.proxies, allow_redirects=False, timeout=REQUEST_TIMEOUT)
+            response = self._post_json(
+                url=target,
+                payload=data,
+                headers={"Content-Type": "application/json", "Accept": "application/json"},
+            )
             if response.status_code != 200:
                 print(f"Error sending to {'api/v1/sat/' + end_point}: Expected status code is 200, got {response.status_code}")
             return response
-        except requests.RequestException as e:
+        except httpx.HTTPError as e:
             print(f"Error sending to {'api/v1/sat/' + end_point}: {e}")
         except TypeError:
             print(f"Data to send cannot be serialized to JSON (data: {data})")

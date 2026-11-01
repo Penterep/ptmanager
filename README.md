@@ -73,6 +73,8 @@ ptlibs
 requests
 ```
 
+Penterep API communication is performed via `httpx` with HTTP/2 enabled.
+
 ## License
 
 Copyright (c) 2025 Penterep Security s.r.o.
