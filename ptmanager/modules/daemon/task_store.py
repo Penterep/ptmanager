@@ -109,16 +109,22 @@ class TaskStore:
             tasks = [t for t in tasks if t["guid"] != guid]
             self.save_tasks(tasks)
 
-    def pop_finished_tasks(self):
+    def pop_finished_tasks(self, now=None):
         """
-        Atomically retrieve and remove all finished tasks (status != 'running').
+        Atomically retrieve and remove all finished tasks (status != 'running') that are due for delivery.
 
         Returns:
             list: List of removed finished task dictionaries.
         """
         with self.lock:
             tasks = self.load_tasks()
-            finished = [t for t in tasks if t.get("status") != "running"]
-            remaining = [t for t in tasks if t.get("status") == "running"]
+            finished = [t for t in tasks if self._is_due(t, now)]
+            remaining = [t for t in tasks if not self._is_due(t, now)]
             self.save_tasks(remaining)
             return finished
+
+    @staticmethod
+    def _is_due(task, now):
+        if task.get("status") == "running":
+            return False
+        return now is None or task.get("next_delivery_at", 0) <= now
