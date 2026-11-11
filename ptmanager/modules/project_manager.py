@@ -24,7 +24,7 @@ except ModuleNotFoundError:
 from ptlibs.ptprinthelper import get_colored_text
 
 class ProjectManager:
-    def __init__(self, ptjsonlib: ptjsonlib.PtJsonLib, use_json: bool, proxies: dict, no_ssl_verify: bool, config: Config, debug: bool) -> None:
+    def __init__(self, ptjsonlib: ptjsonlib.PtJsonLib, use_json: bool, proxies: dict, no_ssl_verify: bool, config: Config, threads: int, debug: bool) -> None:
         self.ptjsonlib: object   = ptjsonlib
         self.use_json: bool      = use_json
         self.no_ssl_verify: bool = no_ssl_verify
@@ -33,6 +33,7 @@ class ProjectManager:
         else:
             self.proxies: dict = {"http": proxies, "https": proxies}
         self.config: object      = config
+        self.threads: int        = threads
         self.debug: bool         = debug
         self.timeout: float      = 30.0
         #TODO: Implementovat přepínač pro insecure SSL a upravit všechny requesty, aby s tímto přepínačem spolupracovaly
@@ -119,7 +120,7 @@ class ProjectManager:
 
             # Construct daemon args 
             path_to_daemon: str = os.path.realpath(os.path.join(__file__.rsplit("/", 1)[0], "daemon", "daemon.py"))
-            subprocess_args = [sys.executable, path_to_daemon, "--project-id", str(project_id)]
+            subprocess_args = [sys.executable, path_to_daemon, "--project-id", str(project_id), "--threads", str(self.threads)]
            
             if self.proxies.get("http"):
                 subprocess_args += ["--proxy", self.proxies.get("http")]

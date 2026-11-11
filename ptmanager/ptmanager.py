@@ -41,6 +41,7 @@ class PtManager:
         self.args                 = args
         self.proxies: dict        = args.proxy
         self.no_ssl_verify: bool  = args.no_ssl_verify
+        self.threads: int         = args.threads
         self.use_json: bool       = False
         self.debug: bool          = args.debug
         if self.debug:
@@ -130,7 +131,7 @@ class PtManager:
                 break
 
     def _get_project_manager(self) -> ProjectManager:
-        return ProjectManager(ptjsonlib=self.ptjsonlib, use_json=self.use_json, proxies=self.proxies, no_ssl_verify=self.no_ssl_verify, config=self.config, debug=self.debug)
+        return ProjectManager(ptjsonlib=self.ptjsonlib, use_json=self.use_json, proxies=self.proxies, no_ssl_verify=self.no_ssl_verify, config=self.config, threads=self.threads, debug=self.debug)
 
     def _get_tools_manager(self) -> ToolsManager:
         return ToolsManager(args=self.args, ptjsonlib=self.ptjsonlib, use_json=self.use_json)
